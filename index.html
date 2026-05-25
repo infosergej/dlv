@@ -1,0 +1,637 @@
+<!DOCTYPE html>
+<html lang="lt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>Maršruto Planavimo Sistema ADPAKAS</title>
+    <link rel="icon" type="image/png" href="favicon.png" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.css" />
+    <script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js"></script>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
+
+    <style>
+        :root {
+            --primary: #10111d;
+            --primary-light: #232533;
+            --accent: #ff9f43;
+            --success: #2ecc71;
+            --danger: #e74c3c;
+            --bg-body: #f8f9fa;
+            --bg-card: #ffffff;
+            --border: #e9ecef;
+            --text-main: #2d3436;
+            --text-muted: #b2bec3;
+        }
+
+        body { 
+            margin: 0; 
+            padding: 0; 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; 
+            display: flex; 
+            flex-direction: row; 
+            height: 100vh; 
+            background: var(--bg-body); 
+            color: var(--text-main);
+            overflow: hidden;
+            position: relative;
+        }
+        
+        /* VALDYMO SKYDELIS */
+        #sidebar { 
+            width: 420px; 
+            height: 100%; 
+            box-sizing: border-box; 
+            padding: 20px; 
+            display: flex; 
+            flex-direction: column; 
+            background: var(--bg-card); 
+            border-right: 1px solid var(--border); 
+            box-shadow: 4px 0 15px rgba(0,0,0,0.03); 
+            z-index: 10; 
+            overflow-y: auto;
+            /* Pataisyta: sklandi animacija atidarant */
+            transition: margin-left 0.3s ease-out, visibility 0.3s ease-out;
+            visibility: visible;
+            display: flex; /* Užtikrinam, kad turinys būtų matomas pagal nutylėjimą */
+        }
+
+        h3 { 
+            margin-top: 0; 
+            margin-bottom: 12px; 
+            font-size: 19px; 
+            font-weight: 700;
+            color: var(--primary); 
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .badge {
+            background: var(--border);
+            color: var(--primary-light);
+            font-size: 12px;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-weight: 600;
+        }
+        
+        .section-label {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            color: var(--text-muted);
+            margin-bottom: 5px;
+            font-weight: 700;
+        }
+
+        .search-container { 
+            margin-bottom: 12px; 
+            position: relative; 
+        }
+
+        .search-input { 
+            width: 100%; 
+            box-sizing: border-box; 
+            padding: 12px 14px; 
+            font-size: 14px; 
+            border: 1px solid var(--border); 
+            border-radius: 8px; 
+            outline: none; 
+            background: #fdfdfd;
+            transition: all 0.2s ease;
+        }
+
+        .search-input:focus { 
+            border-color: var(--primary-light); 
+            background: #fff;
+            box-shadow: 0 0 0 3px rgba(35, 37, 51, 0.08); 
+        }
+
+        .start-input-box .search-input { border-left: 4px solid var(--success); }
+        .delivery-input-box .search-input { border-left: 4px solid var(--accent); }
+        
+        /* Auto-complete */
+        .suggestions-box { 
+            position: absolute; 
+            top: 100%; 
+            left: 0; 
+            right: 0; 
+            background: white; 
+            border: 1px solid var(--border); 
+            border-radius: 8px; 
+            max-height: 180px; 
+            overflow-y: auto; 
+            z-index: 1000; 
+            box-shadow: 0 8px 20px rgba(0,0,0,0.1); 
+            display: none; 
+            margin-top: 4px;
+        }
+
+        .suggestion-item { 
+            padding: 12px 14px; 
+            font-size: 13.5px; 
+            cursor: pointer; 
+            border-bottom: 1px solid var(--bg-body); 
+            color: #4f5d73; 
+        }
+        .suggestion-item:hover { 
+            background: rgba(255, 159, 67, 0.05); 
+            color: var(--primary); 
+        }
+
+        #start-point-display {
+            background: rgba(46, 204, 113, 0.06);
+            border: 1px dashed var(--success);
+            padding: 10px 14px;
+            border-radius: 8px;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            font-size: 13.5px;
+        }
+        #start-point-display .icon { color: var(--success); margin-right: 8px; font-weight: bold; }
+
+        /* ADRESŲ SĄRAŠAS */
+        #address-list { 
+            list-style: none; 
+            padding: 0; 
+            margin: 0; 
+            flex-grow: 1; 
+            overflow-y: auto; 
+            margin-bottom: 15px; 
+        }
+        
+        .address-item { 
+            background: var(--bg-card); 
+            border: 1px solid var(--border); 
+            padding: 12px; 
+            margin-bottom: 8px; 
+            border-radius: 8px; 
+            display: flex; 
+            align-items: center; 
+            box-shadow: 0 1px 3px rgba(0,0,0,0.01);
+        }
+        
+        .drag-handle { 
+            cursor: grab; 
+            padding: 4px 10px 4px 4px; 
+            color: var(--text-muted); 
+            font-size: 18px; 
+            user-select: none; 
+        }
+
+        .address-content { flex-grow: 1; min-width: 0; }
+        .address-title { font-weight: 600; font-size: 13.5px; color: var(--primary); margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .address-meta { font-size: 11px; color: #7f8c8d; }
+        
+        .address-actions { display: flex; align-items: center; gap: 10px; margin-left: 8px; }
+        .position-select { background: var(--bg-body); border: 1px solid var(--border); border-radius: 6px; padding: 4px 6px; font-size: 12px; font-weight: 600; color: var(--primary-light); }
+
+        .delete-btn { 
+            background: none; border: none; color: #a4b0be; font-size: 22px; cursor: pointer; 
+            padding: 6px 10px; border-radius: 6px; transition: all 0.2s; line-height: 1;
+        }
+        .delete-btn:hover { background: #fff0f0; color: var(--danger); }
+
+        /* MYGTUKAS */
+        .btn-container { margin-top: auto; }
+        #route-btn { 
+            background: var(--primary); color: white; border: none; padding: 15px; font-size: 14px; border-radius: 10px; 
+            cursor: pointer; width: 100%; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; 
+            box-shadow: 0 4px 12px rgba(16, 17, 29, 0.15);
+        }
+        #route-btn:disabled { background: var(--border); color: var(--text-muted); box-shadow: none; cursor: not-allowed; }
+
+        /* ŽEMĖLAPIS */
+        #map { flex-grow: 1; height: 100%; width: 100%; transition: height 0.3s ease; }
+
+        /* Fixas PC versijai: paslėpus meniu, žemėlapis turi išsipėsti */
+        body:not(.mobile) #map { width: auto; flex-grow: 1; }
+
+        /* Fiksuotas meniu mygtukas viršuje dešinėje */
+        #toggle-sidebar-btn {
+            position: fixed;
+            top: 15px;
+            right: 15px;
+            z-index: 2500;
+            background: #10111d;
+            color: white;
+            border: 1px solid #232533;
+            border-radius: 8px;
+            padding: 10px 16px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        #toggle-sidebar-btn:hover {
+            background: #232533;
+            transform: translateY(-1px);
+        }
+
+        /* PC VERSUJA: meniu slepiamas stumiant į kairę */
+        body:not(.mobile).sidebar-hidden #sidebar { 
+            margin-left: -420px; 
+            visibility: hidden;
+        }
+
+        /* ŽYMEKLIAI */
+        .number-marker { background: var(--primary); color: white; border-radius: 50%; border: 2px solid white; text-align: center; font-weight: 700; font-size: 12px; line-height: 24px; width: 24px !important; height: 24px !important; box-shadow: 0 2px 5px rgba(0,0,0,0.2); }
+        .start-marker { background: var(--success); }
+
+        /* Pastumiam Leaflet mygtukus žemiau, kad meniu mygtukas netrukdytų */
+        .leaflet-top.leaflet-right {
+            top: 60px !important;
+        }
+
+        /* ======================================================== */
+        /* MOBILIŲJŲ TELEFONŲ EKRARE                                */
+        /* ======================================================== */
+        @media (max-width: 768px) {
+            body {
+                flex-direction: column-reverse; /* Žemėlapis viršuje, meniu apačioje HTML */
+            }
+
+            #map {
+                height: 40vh; /* Pagal nutylėjimą žemėlapis 40% */
+                width: 100%;
+                flex-grow: 0;
+            }
+
+            #sidebar {
+                width: 100%;
+                height: 60vh; /* Meniu 60% */
+                border-right: none;
+                border-top: 1px solid var(--border);
+                padding: 16px 16px 80px 16px;
+                box-sizing: border-box;
+                overflow-y: scroll;
+                -webkit-overflow-scrolling: touch;
+                /* Nuimam tranziciją čia, nes JavaScript valdys display: none */
+                transition: none; 
+                margin: 0;
+            }
+
+            /* Mygtukas telefone viršuje */
+            #toggle-sidebar-btn {
+                top: 10px;
+                right: 10px;
+                padding: 8px 12px;
+                font-size: 12px;
+            }
+
+            .leaflet-top.leaflet-right {
+                top: 50px !important;
+            }
+
+            .btn-container {
+                position: fixed;
+                bottom: 0; left: 0; right: 0;
+                background: linear-gradient(to top, rgba(255,255,255,1) 70%, rgba(255,255,255,0) 0%);
+                padding: 12px 16px 20px 16px;
+                z-index: 1100;
+            }
+
+            #route-btn { padding: 16px; font-size: 15px; }
+            .delete-btn { padding: 8px 12px; }
+            .address-item { padding: 10px; }
+        }
+    </style>
+</head>
+<body>
+
+    <button id="toggle-sidebar-btn" onclick="toggleSidebar()">🗺️ Paslėpti meniu</button>
+
+    <div id="sidebar">
+        <h3>Sąrašas <span class="badge" id="count">0 gavėjų</span></h3>
+        
+        <div class="section-label">📍 Maršruto pradžia (A taškas)</div>
+        <div class="search-container start-input-box">
+            <input type="text" id="start-input" class="search-input" placeholder="Įveskite starto vietą..." autocomplete="off" oninput="debounceSearch(this.value, 'start')">
+            <div id="start-suggestions" class="suggestions-box"></div>
+        </div>
+
+        <div id="start-point-display" style="display: none;">
+            <span class="icon">✓</span> <span id="start-point-text"></span>
+        </div>
+
+        <div class="section-label">📦 Pristatymo adresai</div>
+        <div class="search-container delivery-input-box">
+            <input type="text" id="address-input" class="search-input" placeholder="Įveskite gavėjo adresą..." autocomplete="off" oninput="debounceSearch(this.value, 'delivery')">
+            <div id="suggestions" class="suggestions-box"></div>
+        </div>
+        
+        <ul id="address-list"></ul>
+        
+        <div class="btn-container">
+            <button id="route-btn" onclick="buildFinalRoute()" disabled>Sukurti maršrutą</button>
+        </div>
+    </div>
+
+    <div id="map"></div>
+
+<script>
+    // Inicializacija
+    const map = L.map('map').setView([54.6872, 25.2797], 11);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap'
+    }).addTo(map);
+
+    let initialMarkersGroup = L.layerGroup().addTo(map);
+    let routeMarkersGroup = L.layerGroup().addTo(map);
+    let routingControl = null;
+    let searchTimeout = null;
+    let startPoint = null;
+
+    // Drag-and-Drop
+    const list = document.getElementById('address-list');
+    Sortable.create(list, {
+        handle: '.drag-handle',
+        animation: 150,
+        onEnd: () => { updateListState(); refreshInitialMarkers(); }
+    });
+
+    // Pataisyta meniu perjungimo logika
+    function toggleSidebar() {
+        const body = document.body;
+        const btn = document.getElementById('toggle-sidebar-btn');
+        const sidebar = document.getElementById('sidebar');
+        const mapDiv = document.getElementById('map');
+        const isMobile = window.innerWidth <= 768;
+        
+        body.classList.toggle('sidebar-hidden');
+        
+        if (body.classList.contains('sidebar-hidden')) {
+            btn.innerHTML = '📝 Rodyti meniu';
+            if (isMobile) {
+                // Pagrindinis fixas telefonams:
+                sidebar.style.display = 'none'; // Visiškai pašalinam meniu iš struktūros
+                mapDiv.style.height = '100vh';   // Žemėlapis per visą ekraną
+            }
+        } else {
+            btn.innerHTML = '🗺️ Paslėpti meniu';
+            if (isMobile) {
+                sidebar.style.display = 'flex'; // Grąžinam meniu
+                mapDiv.style.height = '40vh';    // Grąžinam žemėlapio dydį
+            }
+        }
+        
+        // Pataisom žemėlapio vaizdą
+        setTimeout(() => {
+            map.invalidateSize({ animate: true });
+        }, 300);
+    }
+
+    // Pagalbinis fixas telefonams persukant ekraną
+    window.addEventListener('resize', () => {
+        const isMobile = window.innerWidth <= 768;
+        const sidebar = document.getElementById('sidebar');
+        const mapDiv = document.getElementById('map');
+        const bodyHidden = document.body.classList.contains('sidebar-hidden');
+
+        if (!isMobile) {
+            // Jei PC versija, užtikrinam, kad display: none nebūtų užsilikęs
+            sidebar.style.display = 'flex';
+            mapDiv.style.height = '100%';
+        } else {
+            // Jei telefonas
+            if (bodyHidden) {
+                sidebar.style.display = 'none';
+                mapDiv.style.height = '100vh';
+            } else {
+                sidebar.style.display = 'flex';
+                mapDiv.style.height = '40vh';
+            }
+        }
+        map.invalidateSize();
+    });
+
+    // Paieška ir kita logika (nesikeičia)
+    function debounceSearch(value, type) {
+        clearTimeout(searchTimeout);
+        const boxId = type === 'start' ? 'start-suggestions' : 'suggestions';
+        const suggestionsBox = document.getElementById(boxId);
+        
+        if (value.trim().length < 3) {
+            suggestionsBox.style.display = 'none';
+            return;
+        }
+
+        searchTimeout = setTimeout(() => {
+            fetchSuggestions(value, type);
+        }, 300);
+    }
+
+    function fetchSuggestions(query, type) {
+        const boxId = type === 'start' ? 'start-suggestions' : 'suggestions';
+        const suggestionsBox = document.getElementById(boxId);
+        const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&countrycodes=lt&addressdetails=1&accept-language=lt&limit=5`;
+
+        fetch(url)
+            .then(res => res.json())
+            .then(data => {
+                suggestionsBox.innerHTML = '';
+
+                if (data && data.length > 0) {
+                    data.forEach(item => {
+                        const div = document.createElement('div');
+                        div.className = 'suggestion-item';
+                        
+                        const addr = item.address;
+                        let placeName = item.name || '';
+                        
+                        const street = addr.road || '';
+                        const house = addr.house_number || '';
+                        const city = addr.city || addr.town || addr.village || '';
+                        const suburb = addr.suburb || addr.neighbourhood || '';
+                        
+                        let addressParts = [];
+                        
+                        if (placeName && placeName !== street) {
+                            addressParts.push(placeName);
+                        }
+                        if (street) {
+                            addressParts.push(street + (house ? ' ' + house : ''));
+                        }
+                        if (suburb) addressParts.push(suburb);
+                        if (city) addressParts.push(city);
+
+                        let cleanAddress = addressParts.filter(Boolean).join(', ');
+                        if(!cleanAddress) cleanAddress = item.display_name;
+
+                        div.innerText = cleanAddress;
+                        
+                        div.onclick = () => {
+                            if (type === 'start') {
+                                setStartPoint(cleanAddress, parseFloat(item.lat), parseFloat(item.lon));
+                            } else {
+                                addAddressToList(cleanAddress, parseFloat(item.lat), parseFloat(item.lon));
+                            }
+                            suggestionsBox.style.display = 'none';
+                            const inputId = type === 'start' ? 'start-input' : 'address-input';
+                            document.getElementById(inputId).value = '';
+                        };
+                        suggestionsBox.appendChild(div);
+                    });
+                    suggestionsBox.style.display = 'block';
+                } else {
+                    suggestionsBox.style.display = 'none';
+                }
+            })
+            .catch(() => {});
+    }
+
+    document.addEventListener('click', (e) => {
+        if (e.target.id !== 'address-input') document.getElementById('suggestions').style.display = 'none';
+        if (e.target.id !== 'start-input') document.getElementById('start-suggestions').style.display = 'none';
+    });
+
+    function setStartPoint(title, lat, lng) {
+        clearRouteLine();
+        startPoint = { title, lat, lng };
+        document.getElementById('start-point-text').innerText = title;
+        document.getElementById('start-point-display').style.display = 'flex';
+        map.setView([lat, lng], 13);
+        refreshInitialMarkers();
+        updateListState();
+    }
+
+    function addAddressToList(title, lat, lng) {
+        clearRouteLine();
+
+        const li = document.createElement('li');
+        li.className = 'address-item';
+        li.setAttribute('data-lat', lat);
+        li.setAttribute('data-lng', lng);
+        li.setAttribute('data-title', title);
+
+        li.innerHTML = `
+            <div class="drag-handle">☰</div>
+            <div class="address-content">
+                <div class="address-title">${title}</div>
+                <div class="address-meta">Koord.: ${lat.toFixed(4)}, ${lng.toFixed(4)}</div>
+            </div>
+            <div class="address-actions">
+                <select class="position-select" onchange="changePosition(this)"></select>
+                <button class="delete-btn" onclick="deleteItem(this)">×</button>
+            </div>
+        `;
+
+        document.getElementById('address-list').appendChild(li);
+        map.setView([lat, lng], 13);
+        refreshInitialMarkers();
+        updateListState();
+    }
+
+    function updateListState() {
+        const items = document.querySelectorAll('.address-item');
+        const total = items.length;
+        document.getElementById('count').innerText = `${total} gavėjų`;
+        document.getElementById('route-btn').disabled = !(startPoint && total >= 1);
+
+        items.forEach((item, index) => {
+            const select = item.querySelector('.position-select');
+            select.innerHTML = '';
+            for (let i = 1; i <= total; i++) {
+                let opt = document.createElement('option');
+                opt.value = i; opt.innerText = i;
+                if (i === (index + 1)) opt.selected = true;
+                select.appendChild(opt);
+            }
+        });
+    }
+
+    function changePosition(selectElement) {
+        clearRouteLine();
+        const itemToMove = selectElement.closest('.address-item');
+        const targetPosition = parseInt(selectElement.value) - 1;
+        const listContainer = document.getElementById('address-list');
+        
+        listContainer.removeChild(itemToMove);
+        const currentItems = document.querySelectorAll('.address-item');
+        
+        if (targetPosition >= currentItems.length) {
+            listContainer.appendChild(itemToMove);
+        } else {
+            listContainer.insertBefore(itemToMove, currentItems[targetPosition]);
+        }
+        updateListState();
+        refreshInitialMarkers();
+    }
+
+    function deleteItem(buttonElement) {
+        if (confirm("Ar tikrai norite pašalinti šį adresą iš maršruto?")) {
+            clearRouteLine();
+            buttonElement.closest('.address-item').remove();
+            updateListState();
+            refreshInitialMarkers();
+        }
+    }
+
+    function refreshInitialMarkers() {
+        initialMarkersGroup.clearLayers();
+        if (startPoint) {
+            const startIcon = L.divIcon({ className: 'number-marker start-marker', html: 'S' });
+            L.marker([startPoint.lat, startPoint.lng], { icon: startIcon }).addTo(initialMarkersGroup).bindPopup(`<b>Pradžia:</b> ${startPoint.title}`);
+        }
+        document.querySelectorAll('.address-item').forEach((item, index) => {
+            const lat = parseFloat(item.getAttribute('data-lat'));
+            const lng = parseFloat(item.getAttribute('data-lng'));
+            const title = item.getAttribute('data-title');
+            
+            const numberIcon = L.divIcon({ className: 'number-marker', html: index + 1 });
+            L.marker([lat, lng], { icon: numberIcon }).addTo(initialMarkersGroup).bindPopup(`<b>${index + 1}.</b> ${title}`);
+        });
+    }
+
+    function clearRouteLine() {
+        if (routingControl !== null) { map.removeControl(routingControl); routingControl = null; }
+        routeMarkersGroup.clearLayers();
+        refreshInitialMarkers();
+    }
+
+    function buildFinalRoute() {
+        if (!startPoint) return;
+        if (routingControl !== null) { map.removeControl(routingControl); }
+        routeMarkersGroup.clearLayers();
+        initialMarkersGroup.clearLayers();
+
+        const waypoints = [];
+        waypoints.push(L.latLng(startPoint.lat, startPoint.lng));
+        
+        const startIcon = L.divIcon({ className: 'number-marker start-marker', html: 'S' });
+        L.marker([startPoint.lat, startPoint.lng], { icon: startIcon }).addTo(routeMarkersGroup).bindPopup(`<b>Startas:</b> ${startPoint.title}`);
+
+        document.querySelectorAll('.address-item').forEach((item, index) => {
+            const lat = parseFloat(item.getAttribute('data-lat'));
+            const lng = parseFloat(item.getAttribute('data-lng'));
+            const title = item.getAttribute('data-title');
+            waypoints.push(L.latLng(lat, lng));
+
+            const numberIcon = L.divIcon({ className: 'number-marker', html: index + 1 });
+            L.marker([lat, lng], { icon: numberIcon }).addTo(routeMarkersGroup).bindPopup(`<b>${index + 1}.</b> ${title}`);
+        });
+
+        routingControl = L.Routing.control({
+            waypoints: waypoints,
+            lineOptions: { styles: [{ color: '#10111d', weight: 6, opacity: 0.85 }] },
+            createMarker: function() { return null; },
+            addWaypoints: false,
+            show: false
+        }).addTo(map);
+        
+        if (window.innerWidth <= 768) {
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+    }
+</script>
+</body>
+</html>
