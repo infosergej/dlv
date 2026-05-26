@@ -361,10 +361,13 @@
             <div id="start-suggestions" class="suggestions-box"></div>
         </div>
 
-        <div id="start-point-display" style="display: none;">
-            <span class="icon">✓</span> <span id="start-point-text"></span>
-        </div>
-
+        <div id="start-point-display" style="display: none; align-items: center; justify-content: space-between; width: 100%; background: rgba(46, 204, 113, 0.06); border: 1px dashed var(--success); padding: 10px 14px; border-radius: 8px; margin-bottom: 12px; box-sizing: border-box;">
+    <div style="display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0;">
+        <span class="icon">✓</span> 
+        <span id="start-point-text" style="word-break: break-word; font-weight: 600; font-size: 13.5px; color: var(--primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"></span>
+    </div>
+    <button onclick="deleteStartPoint()" style="background: none; border: none; color: #a4b0be; font-size: 22px; cursor: pointer; padding: 0 5px; line-height: 1; transition: color 0.2s;" onmouseover="this.style.color='#e74c3c'" onmouseout="this.style.color='#a4b0be'">×</button>
+    </div>
         <div class="section-label">📦 Pristatymo adresai</div>
         <div class="search-container delivery-input-box">
             <input type="text" id="address-input" class="search-input" placeholder="Įveskite gavėjo adresą..." autocomplete="off" oninput="debounceSearch(this.value, 'delivery')">
@@ -677,6 +680,29 @@
                 select.appendChild(opt);
             }
         });
+    }
+    // Nauja funkcija: Visiškas Starto pozicijos (A taško) pašalinimas
+    function deleteStartPoint() {
+        if (confirm("Ar tikrai norite pašalinti starto poziciją (A tašką)?")) {
+            // 1. Стираем линию маршрута с карты, так как без старта его быть не может
+            clearRouteLine();
+            
+            // 2. Сбрасываем переменную старта в null
+            startPoint = null;
+            
+            // 3. Прячем блок отображения на панели и очищаем текст
+            document.getElementById('start-point-display').style.display = 'none';
+            document.getElementById('start-point-text').innerText = '';
+            
+            // 4. Обновляем счетчики и блокируем кнопку "Sukurti maršrutą"
+            updateListState();
+            
+            // 5. Перерисовываем маркеры на карте (останутся только точки доставки)
+            refreshInitialMarkers();
+            
+            // 6. Сохраняем пустой старт в память браузера (localStorage)
+            saveDataToLocalStorage();
+        }
     }
 
     function changePosition(selectElement) {
