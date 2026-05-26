@@ -304,10 +304,52 @@
             .delete-btn { padding: 8px 12px; }
             .address-item { padding: 10px; }
         }
+        /* GPS MYGTUKAS */
+        #gps-btn {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            z-index: 2500;
+            background: #ffffff;
+            color: #10111d;
+            border: 2px solid rgba(0,0,0,0.2);
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            font-size: 22px;
+            cursor: pointer;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s ease;
+        }
+        #gps-btn:hover {
+            transform: scale(1.05);
+            background: #f8f9fa;
+        }
+        #gps-btn:active {
+            transform: scale(0.95);
+        }
+        body.sidebar-hidden #gps-btn {
+            display: none !important;
+        }
+        
+        /* Смещение кнопки на мобилках, чтобы она не перекрывалась кнопкой отправки */
+        @media (max-width: 768px) {
+            #gps-btn {
+                bottom: 90px;
+                right: 20px;
+                width: 45px;
+                height: 45px;
+                font-size: 18px;
+            }
+        }
     </style>
 </head>
 <body>
-
+    <button id="toggle-sidebar-btn" onclick="toggleSidebar()">🗺️ Paslėpti meniu</button>
+    <button id="gps-btn" onclick="findMyLocation()" title="Nustatyti mano vietą">🎯</button>
     <button id="toggle-sidebar-btn" onclick="toggleSidebar()">🗺️ Paslėpti meniu</button>
 
     <div id="sidebar">
@@ -733,6 +775,55 @@
         if (shouldScroll && window.innerWidth <= 768) {
             window.scrollTo({ top: 0, behavior: 'smooth' });
         }
+    }
+
+    // GPS vietos nustatymo funkcija
+    function findMyLocation() {
+        if (!navigator.geolocation) {
+            alert("Jūsų naršyklė nepalaiko GPS funkcijos.");
+            return;
+        }
+
+        const gpsButton = document.getElementById('gps-btn');
+        gpsButton.innerText = "⏳"; // Показываем иконку загрузки
+
+        navigator.geolocation.getCurrentPosition(
+            (position) => {
+                const lat = position.coords.latitude;
+                const lng = position.coords.longitude;
+                
+                // Текст, который запишется как имя стартовой точки
+                const title = `Mano vieta (${lat.toFixed(4)}, ${lng.toFixed(4)})`;
+                
+                // Используем уже готовую у вас функцию для установки точки А
+                setStartPoint(title, lat, lng);
+                
+                gpsButton.innerText = "🎯"; // Возвращаем иконку при успехе
+            },
+            (error) => {
+                gpsButton.innerText = "🎯"; // Возвращаем иконку при ошибке
+                
+                // Обработка базовых ошибок GPS
+                switch(error.code) {
+                    case error.PERMISSION_DENIED:
+                        alert("Klaida: Jūs uždraudėte prieigą prie savo vietovės.");
+                        break;
+                    case error.POSITION_UNAVAILABLE:
+                        alert("Klaida: Nepavyko nustatyti vietos (silpnas GPS signalas).");
+                        break;
+                    case error.TIMEOUT:
+                        alert("Klaida: Baigėsi vietos nustatymo laikas.");
+                        break;
+                    default:
+                        alert("Įvyko nežinoma GPS klaida.");
+                }
+            },
+            {
+                enableHighAccuracy: true, // Просим устройство использовать спутники (максимальная точность)
+                timeout: 10000,           /* Ждем ответ от спутников не более 10 секунд */
+                maximumAge: 0             /* Не берем старые данные из кэша, запрашиваем позицию в реальном времени */
+            }
+        );
     }
 
     // Инициализация загрузки сохраненных данных при старте скрипта
