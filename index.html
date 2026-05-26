@@ -350,14 +350,106 @@
     let routingControl = null;
     let searchTimeout = null;
     let startPoint = null;
+    let isRouteCurrentlyBuilt = false; // ИЗМЕНЕНИЕ: Переменная для отслеживания статуса маршрута
 
     // Drag-and-Drop
     const list = document.getElementById('address-list');
     Sortable.create(list, {
         handle: '.drag-handle',
         animation: 150,
-        onEnd: () => { updateListState(); refreshInitialMarkers(); }
+        onEnd: () => { 
+            updateListState(); 
+            refreshInitialMarkers(); 
+            // ИЗМЕНЕНИЕ: Если маршрут уже был построен, перестраиваем его при перетаскивании
+            if (isRouteCurrentlyBuilt) {
+                buildFinalRoute(false); // false означает "не скроллить экран вверх"
+            } else {
+                saveDataToLocalStorage(); 
+            }
+        }
     });
+
+    // Функция сохранения данных в localStorage
+    function saveDataToLocalStorage() {
+        const items = [];
+        document.querySelectorAll('.address-item').forEach(item => {
+            items.push({
+                title: item.getAttribute('data-title'),
+                lat: parseFloat(item.getAttribute('data-lat')),
+                lng: parseFloat(item.getAttribute('data-lng'))
+            });
+        });
+
+        const dataToSave = {
+            startPoint: startPoint,
+            deliveryAddresses: items,
+            routeBuilt: isRouteCurrentlyBuilt // ИЗМЕНЕНИЕ: Сохраняем статус линии маршрута
+        };
+
+        localStorage.setItem('adpakas_route_data', JSON.stringify(dataToSave));
+    }
+
+    // Функция загрузки данных из localStorage при открытии
+    function loadDataFromLocalStorage() {
+        const savedData = localStorage.getItem('adpakas_route_data');
+        if (!savedData) return;
+
+        try {
+            const data = JSON.parse(savedData);
+            
+            // Восстанавливаем стартовую точку
+            if (data.startPoint) {
+                startPoint = data.startPoint;
+                document.getElementById('start-point-text').innerText = startPoint.title;
+                document.getElementById('start-point-display').style.display = 'flex';
+            }
+
+            // Восстанавливаем адреса доставки
+            if (data.deliveryAddresses && data.deliveryAddresses.length > 0) {
+                const listContainer = document.getElementById('address-list');
+                data.deliveryAddresses.forEach(addr => {
+                    const li = document.createElement('li');
+                    li.className = 'address-item';
+                    li.setAttribute('data-lat', addr.lat);
+                    li.setAttribute('data-lng', addr.lng);
+                    li.setAttribute('data-title', addr.title);
+
+                    li.innerHTML = `
+                        <div class="drag-handle">☰</div>
+                        <div class="address-content">
+                            <div class="address-title">${addr.title}</div>
+                            <div class="address-meta">Koord.: ${addr.lat.toFixed(4)}, ${addr.lng.toFixed(4)}</div>
+                        </div>
+                        <div class="address-actions">
+                            <select class="position-select" onchange="changePosition(this)"></select>
+                            <button class="delete-btn" onclick="deleteItem(this)">×</button>
+                        </div>
+                    `;
+                    listContainer.appendChild(li);
+                });
+            }
+
+            // Обновляем интерфейс
+            if (startPoint || (data.deliveryAddresses && data.deliveryAddresses.length > 0)) {
+                updateListState();
+                refreshInitialMarkers();
+                
+                // ИЗМЕНЕНИЕ: Если до перезагрузки маршрут был построен, строим его автоматически
+                if (data.routeBuilt && startPoint && data.deliveryAddresses.length > 0) {
+                    buildFinalRoute(false); // Строим без анимации скролла
+                } else {
+                    // Иначе просто центрируем карту
+                    if (startPoint) {
+                        map.setView([startPoint.lat, startPoint.lng], 12);
+                    } else if (data.deliveryAddresses.length > 0) {
+                        map.setView([data.deliveryAddresses[0].lat, data.deliveryAddresses[0].lng], 12);
+                    }
+                }
+            }
+        } catch (e) {
+            console.error("Klaida įkeliant išsaugotus duomenis:", e);
+        }
+    }
 
     // Pataisyta meniu perjungimo logika
     function toggleSidebar() {
@@ -372,25 +464,22 @@
         if (body.classList.contains('sidebar-hidden')) {
             btn.innerHTML = '📝 Rodyti meniu';
             if (isMobile) {
-                // Pagrindinis fixas telefonams:
-                sidebar.style.display = 'none'; // Visiškai pašalinam meniu iš struktūros
-                mapDiv.style.height = '100vh';   // Žemėlapis per visą ekraną
+                sidebar.style.display = 'none';
+                mapDiv.style.height = '100vh';
             }
         } else {
             btn.innerHTML = '🗺️ Paslėpti meniu';
             if (isMobile) {
-                sidebar.style.display = 'flex'; // Grąžinam meniu
-                mapDiv.style.height = '40vh';    // Grąžinam žemėlapio dydį
+                sidebar.style.display = 'flex';
+                mapDiv.style.height = '40vh';
             }
         }
         
-        // Pataisom žemėlapio vaizdą
         setTimeout(() => {
             map.invalidateSize({ animate: true });
         }, 300);
     }
 
-    // Pagalbinis fixas telefonams persukant ekraną
     window.addEventListener('resize', () => {
         const isMobile = window.innerWidth <= 768;
         const sidebar = document.getElementById('sidebar');
@@ -398,11 +487,9 @@
         const bodyHidden = document.body.classList.contains('sidebar-hidden');
 
         if (!isMobile) {
-            // Jei PC versija, užtikrinam, kad display: none nebūtų užsilikęs
             sidebar.style.display = 'flex';
             mapDiv.style.height = '100%';
         } else {
-            // Jei telefonas
             if (bodyHidden) {
                 sidebar.style.display = 'none';
                 mapDiv.style.height = '100vh';
@@ -414,7 +501,6 @@
         map.invalidateSize();
     });
 
-    // Paieška ir kita logika (nesikeičia)
     function debounceSearch(value, type) {
         clearTimeout(searchTimeout);
         const boxId = type === 'start' ? 'start-suggestions' : 'suggestions';
@@ -502,6 +588,7 @@
         map.setView([lat, lng], 13);
         refreshInitialMarkers();
         updateListState();
+        saveDataToLocalStorage(); 
     }
 
     function addAddressToList(title, lat, lng) {
@@ -529,6 +616,7 @@
         map.setView([lat, lng], 13);
         refreshInitialMarkers();
         updateListState();
+        saveDataToLocalStorage(); 
     }
 
     function updateListState() {
@@ -565,6 +653,13 @@
         }
         updateListState();
         refreshInitialMarkers();
+        
+        // ИЗМЕНЕНИЕ: Если маршрут уже был на экране, автоматически перестраиваем его с учетом нового порядка
+        if (isRouteCurrentlyBuilt) {
+            buildFinalRoute(false);
+        } else {
+            saveDataToLocalStorage();
+        }
     }
 
     function deleteItem(buttonElement) {
@@ -573,6 +668,7 @@
             buttonElement.closest('.address-item').remove();
             updateListState();
             refreshInitialMarkers();
+            saveDataToLocalStorage(); 
         }
     }
 
@@ -595,10 +691,13 @@
     function clearRouteLine() {
         if (routingControl !== null) { map.removeControl(routingControl); routingControl = null; }
         routeMarkersGroup.clearLayers();
+        isRouteCurrentlyBuilt = false; // ИЗМЕНЕНИЕ: Сбрасываем статус при стирании линии
         refreshInitialMarkers();
+        saveDataToLocalStorage(); // ИЗМЕНЕНИЕ: Сохраняем факт того, что маршрут сброшен
     }
 
-    function buildFinalRoute() {
+    // ИЗМЕНЕНИЕ: Добавлен аргумент shouldScroll (по умолчанию true), чтобы страница не прыгала при автозагрузке
+    function buildFinalRoute(shouldScroll = true) {
         if (!startPoint) return;
         if (routingControl !== null) { map.removeControl(routingControl); }
         routeMarkersGroup.clearLayers();
@@ -628,10 +727,16 @@
             show: false
         }).addTo(map);
         
-        if (window.innerWidth <= 768) {
+        isRouteCurrentlyBuilt = true; // ИЗМЕНЕНИЕ: Фиксируем, что линия построена
+        saveDataToLocalStorage();    // ИЗМЕНЕНИЕ: Сохраняем изменения в память
+
+        if (shouldScroll && window.innerWidth <= 768) {
             window.scrollTo({ top: 0, behavior: 'smooth' });
         }
     }
+
+    // Инициализация загрузки сохраненных данных при старте скрипта
+    loadDataFromLocalStorage();
 </script>
 </body>
 </html>
