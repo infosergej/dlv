@@ -744,15 +744,36 @@
         initialMarkersGroup.clearLayers();
         if (startPoint) {
             const startIcon = L.divIcon({ className: 'number-marker start-marker', html: 'S' });
-            L.marker([startPoint.lat, startPoint.lng], { icon: startIcon }).addTo(initialMarkersGroup).bindPopup(`<b>Pradžia:</b> ${startPoint.title}`);
+            
+            // Ссылка для Старта
+            const googleMapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${startPoint.lat},${startPoint.lng}`;
+            const popupContent = `
+                <div style="font-family: sans-serif; padding: 2px;">
+                    <b>Pradžia:</b> <span style="display:block; margin-bottom:8px; color:#555;">${startPoint.title}</span>
+                    <a href="${googleMapsUrl}" target="_blank" style="display: block; text-align: center; background: #4285F4; color: white; text-decoration: none; padding: 6px 10px; border-radius: 4px; font-size: 12px; font-weight: bold; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">🗺️ Google Maps Navigacija</a>
+                </div>
+            `;
+            
+            L.marker([startPoint.lat, startPoint.lng], { icon: startIcon }).addTo(initialMarkersGroup).bindPopup(popupContent);
         }
+        
         document.querySelectorAll('.address-item').forEach((item, index) => {
             const lat = parseFloat(item.getAttribute('data-lat'));
             const lng = parseFloat(item.getAttribute('data-lng'));
             const title = item.getAttribute('data-title');
             
             const numberIcon = L.divIcon({ className: 'number-marker', html: index + 1 });
-            L.marker([lat, lng], { icon: numberIcon }).addTo(initialMarkersGroup).bindPopup(`<b>${index + 1}.</b> ${title}`);
+            
+            // Ссылка для Точек доставки
+            const googleMapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
+            const popupContent = `
+                <div style="font-family: sans-serif; padding: 2px;">
+                    <b>${index + 1}. Gavėjas:</b> <span style="display:block; margin-bottom:8px; color:#555;">${title}</span>
+                    <a href="${googleMapsUrl}" target="_blank" style="display: block; text-align: center; background: #4285F4; color: white; text-decoration: none; padding: 6px 10px; border-radius: 4px; font-size: 12px; font-weight: bold; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">🗺️ Google Maps Navigacija</a>
+                </div>
+            `;
+            
+            L.marker([lat, lng], { icon: numberIcon }).addTo(initialMarkersGroup).bindPopup(popupContent);
         });
     }
 
@@ -765,7 +786,7 @@
     }
 
     // ИЗМЕНЕНИЕ: Добавлен аргумент shouldScroll (по умолчанию true), чтобы страница не прыгала при автозагрузке
-    function buildFinalRoute(shouldScroll = true) {
+   function buildFinalRoute(shouldScroll = true) {
         if (!startPoint) return;
         if (routingControl !== null) { map.removeControl(routingControl); }
         routeMarkersGroup.clearLayers();
@@ -775,7 +796,16 @@
         waypoints.push(L.latLng(startPoint.lat, startPoint.lng));
         
         const startIcon = L.divIcon({ className: 'number-marker start-marker', html: 'S' });
-        L.marker([startPoint.lat, startPoint.lng], { icon: startIcon }).addTo(routeMarkersGroup).bindPopup(`<b>Startas:</b> ${startPoint.title}`);
+        
+        // Кнопка для старта на проложенном маршруте
+        const startGpsUrl = `https://www.google.com/maps/dir/?api=1&destination=${startPoint.lat},${startPoint.lng}`;
+        const startPopup = `
+            <div style="font-family: sans-serif; padding: 2px;">
+                <b>Startas:</b> <span style="display:block; margin-bottom:8px; color:#555;">${startPoint.title}</span>
+                <a href="${startGpsUrl}" target="_blank" style="display: block; text-align: center; background: #4285F4; color: white; text-decoration: none; padding: 6px 10px; border-radius: 4px; font-size: 12px; font-weight: bold;">🗺️ Google Maps Navigacija</a>
+            </div>
+        `;
+        L.marker([startPoint.lat, startPoint.lng], { icon: startIcon }).addTo(routeMarkersGroup).bindPopup(startPopup);
 
         document.querySelectorAll('.address-item').forEach((item, index) => {
             const lat = parseFloat(item.getAttribute('data-lat'));
@@ -784,7 +814,16 @@
             waypoints.push(L.latLng(lat, lng));
 
             const numberIcon = L.divIcon({ className: 'number-marker', html: index + 1 });
-            L.marker([lat, lng], { icon: numberIcon }).addTo(routeMarkersGroup).bindPopup(`<b>${index + 1}.</b> ${title}`);
+            
+            // Кнопка для точек доставки на проложенном маршруте
+            const addressGpsUrl = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
+            const addressPopup = `
+                <div style="font-family: sans-serif; padding: 2px;">
+                    <b>${index + 1}. ${title}</b>
+                    <a href="${addressGpsUrl}" target="_blank" style="display: block; text-align: center; background: #4285F4; color: white; text-decoration: none; padding: 6px 10px; border-radius: 4px; font-size: 12px; font-weight: bold; margin-top:8px;">🗺️ Google Maps Navigacija</a>
+                </div>
+            `;
+            L.marker([lat, lng], { icon: numberIcon }).addTo(routeMarkersGroup).bindPopup(addressPopup);
         });
 
         routingControl = L.Routing.control({
@@ -795,8 +834,8 @@
             show: false
         }).addTo(map);
         
-        isRouteCurrentlyBuilt = true; // ИЗМЕНЕНИЕ: Фиксируем, что линия построена
-        saveDataToLocalStorage();    // ИЗМЕНЕНИЕ: Сохраняем изменения в память
+        isRouteCurrentlyBuilt = true; 
+        saveDataToLocalStorage();    
 
         if (shouldScroll && window.innerWidth <= 768) {
             window.scrollTo({ top: 0, behavior: 'smooth' });
