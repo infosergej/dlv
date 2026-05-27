@@ -1,0 +1,331 @@
+            :root {
+            --primary: #10111d;
+            --primary-light: #232533;
+            --accent: #ff9f43;
+            --success: #2ecc71;
+            --danger: #e74c3c;
+            --bg-body: #f8f9fa;
+            --bg-card: #ffffff;
+            --border: #e9ecef;
+            --text-main: #2d3436;
+            --text-muted: #b2bec3;
+        }
+
+        body { 
+            margin: 0; 
+            padding: 0; 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; 
+            display: flex; 
+            flex-direction: row; 
+            height: 100vh; 
+            background: var(--bg-body); 
+            color: var(--text-main);
+            overflow: hidden;
+            position: relative;
+        }
+        
+        /* VALDYMO SKYDELIS */
+        #sidebar { 
+            width: 420px; 
+            height: 100%; 
+            box-sizing: border-box; 
+            padding: 20px; 
+            display: flex; 
+            flex-direction: column; 
+            background: var(--bg-card); 
+            border-right: 1px solid var(--border); 
+            box-shadow: 4px 0 15px rgba(0,0,0,0.03); 
+            z-index: 10; 
+            overflow-y: auto;
+            /* Pataisyta: sklandi animacija atidarant */
+            transition: margin-left 0.3s ease-out, visibility 0.3s ease-out;
+            visibility: visible;
+            display: flex; /* Užtikrinam, kad turinys būtų matomas pagal nutylėjimą */
+        }
+
+        h3 { 
+            margin-top: 0; 
+            margin-bottom: 12px; 
+            font-size: 19px; 
+            font-weight: 700;
+            color: var(--primary); 
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .badge {
+            background: var(--border);
+            color: var(--primary-light);
+            font-size: 12px;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-weight: 600;
+        }
+        
+        .section-label {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            color: var(--text-muted);
+            margin-bottom: 5px;
+            font-weight: 700;
+        }
+
+        .search-container { 
+            margin-bottom: 12px; 
+            position: relative; 
+        }
+
+        .search-input { 
+            width: 100%; 
+            box-sizing: border-box; 
+            padding: 12px 14px; 
+            font-size: 14px; 
+            border: 1px solid var(--border); 
+            border-radius: 8px; 
+            outline: none; 
+            background: #fdfdfd;
+            transition: all 0.2s ease;
+        }
+
+        .search-input:focus { 
+            border-color: var(--primary-light); 
+            background: #fff;
+            box-shadow: 0 0 0 3px rgba(35, 37, 51, 0.08); 
+        }
+
+        .start-input-box .search-input { border-left: 4px solid var(--success); }
+        .delivery-input-box .search-input { border-left: 4px solid var(--accent); }
+        
+        /* Auto-complete */
+        .suggestions-box { 
+            position: absolute; 
+            top: 100%; 
+            left: 0; 
+            right: 0; 
+            background: white; 
+            border: 1px solid var(--border); 
+            border-radius: 8px; 
+            max-height: 180px; 
+            overflow-y: auto; 
+            z-index: 1000; 
+            box-shadow: 0 8px 20px rgba(0,0,0,0.1); 
+            display: none; 
+            margin-top: 4px;
+        }
+
+        .suggestion-item { 
+            padding: 12px 14px; 
+            font-size: 13.5px; 
+            cursor: pointer; 
+            border-bottom: 1px solid var(--bg-body); 
+            color: #4f5d73; 
+        }
+        .suggestion-item:hover { 
+            background: rgba(255, 159, 67, 0.05); 
+            color: var(--primary); 
+        }
+
+        #start-point-display {
+            background: rgba(46, 204, 113, 0.06);
+            border: 1px dashed var(--success);
+            padding: 10px 14px;
+            border-radius: 8px;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            font-size: 13.5px;
+        }
+        #start-point-display .icon { color: var(--success); margin-right: 8px; font-weight: bold; }
+
+        /* ADRESŲ SĄRAŠAS */
+        #address-list { 
+            list-style: none; 
+            padding: 0; 
+            margin: 0; 
+            flex-grow: 1; 
+            overflow-y: auto; 
+            margin-bottom: 15px; 
+        }
+        
+        .address-item { 
+            background: var(--bg-card); 
+            border: 1px solid var(--border); 
+            padding: 12px; 
+            margin-bottom: 8px; 
+            border-radius: 8px; 
+            display: flex; 
+            align-items: center; 
+            box-shadow: 0 1px 3px rgba(0,0,0,0.01);
+        }
+        
+        .drag-handle { 
+            cursor: grab; 
+            padding: 4px 10px 4px 4px; 
+            color: var(--text-muted); 
+            font-size: 18px; 
+            user-select: none; 
+        }
+
+        .address-content { flex-grow: 1; min-width: 0; }
+        .address-title { font-weight: 600; font-size: 13.5px; color: var(--primary); margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .address-meta { font-size: 11px; color: #7f8c8d; }
+        
+        .address-actions { display: flex; align-items: center; gap: 10px; margin-left: 8px; }
+        .position-select { background: var(--bg-body); border: 1px solid var(--border); border-radius: 6px; padding: 4px 6px; font-size: 12px; font-weight: 600; color: var(--primary-light); }
+
+        .delete-btn { 
+            background: none; border: none; color: #a4b0be; font-size: 22px; cursor: pointer; 
+            padding: 6px 10px; border-radius: 6px; transition: all 0.2s; line-height: 1;
+        }
+        .delete-btn:hover { background: #fff0f0; color: var(--danger); }
+
+        /* MYGTUKAS */
+        .btn-container { margin-top: auto; }
+        #route-btn { 
+            background: var(--primary); color: white; border: none; padding: 15px; font-size: 14px; border-radius: 10px; 
+            cursor: pointer; width: 100%; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; 
+            box-shadow: 0 4px 12px rgba(16, 17, 29, 0.15);
+        }
+        #route-btn:disabled { background: var(--border); color: var(--text-muted); box-shadow: none; cursor: not-allowed; }
+
+        /* ŽEMĖLAPIS */
+        #map { flex-grow: 1; height: 100%; width: 100%; transition: height 0.3s ease; }
+
+        /* Fixas PC versijai: paslėpus meniu, žemėlapis turi išsipėsti */
+        body:not(.mobile) #map { width: auto; flex-grow: 1; }
+
+        /* Fiksuotas meniu mygtukas viršuje dešinėje */
+        #toggle-sidebar-btn {
+            position: fixed;
+            top: 15px;
+            right: 15px;
+            z-index: 2500;
+            background: #10111d;
+            color: white;
+            border: 1px solid #232533;
+            border-radius: 8px;
+            padding: 10px 16px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        #toggle-sidebar-btn:hover {
+            background: #232533;
+            transform: translateY(-1px);
+        }
+
+        /* PC VERSUJA: meniu slepiamas stumiant į kairę */
+        body:not(.mobile).sidebar-hidden #sidebar { 
+            margin-left: -420px; 
+            visibility: hidden;
+        }
+
+        /* ŽYMEKLIAI */
+        .number-marker { background: var(--primary); color: white; border-radius: 50%; border: 2px solid white; text-align: center; font-weight: 700; font-size: 12px; line-height: 24px; width: 24px !important; height: 24px !important; box-shadow: 0 2px 5px rgba(0,0,0,0.2); }
+        .start-marker { background: var(--success); }
+
+        /* Pastumiam Leaflet mygtukus žemiau, kad meniu mygtukas netrukdytų */
+        .leaflet-top.leaflet-right {
+            top: 60px !important;
+        }
+
+        /* ======================================================== */
+        /* MOBILIŲJŲ TELEFONŲ EKRARE                                */
+        /* ======================================================== */
+        @media (max-width: 768px) {
+            body {
+                flex-direction: column-reverse; /* Žemėlapis viršuje, meniu apačioje HTML */
+            }
+
+            #map {
+                height: 40vh; /* Pagal nutylėjimą žemėlapis 40% */
+                width: 100%;
+                flex-grow: 0;
+            }
+
+            #sidebar {
+                width: 100%;
+                height: 60vh; /* Meniu 60% */
+                border-right: none;
+                border-top: 1px solid var(--border);
+                padding: 16px 16px 80px 16px;
+                box-sizing: border-box;
+                overflow-y: scroll;
+                -webkit-overflow-scrolling: touch;
+                /* Nuimam tranziciją čia, nes JavaScript valdys display: none */
+                transition: none; 
+                margin: 0;
+            }
+
+            /* Mygtukas telefone viršuje */
+            #toggle-sidebar-btn {
+                top: 10px;
+                right: 10px;
+                padding: 8px 12px;
+                font-size: 12px;
+            }
+
+            .leaflet-top.leaflet-right {
+                top: 50px !important;
+            }
+
+            .btn-container {
+                position: fixed;
+                bottom: 0; left: 0; right: 0;
+                background: linear-gradient(to top, rgba(255,255,255,1) 70%, rgba(255,255,255,0) 0%);
+                padding: 12px 16px 20px 16px;
+                z-index: 1100;
+            }
+
+            #route-btn { padding: 16px; font-size: 15px; }
+            .delete-btn { padding: 8px 12px; }
+            .address-item { padding: 10px; }
+        }
+        /* GPS MYGTUKAS */
+        #gps-btn {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            z-index: 2500;
+            background: #ffffff;
+            color: #10111d;
+            border: 2px solid rgba(0,0,0,0.2);
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            font-size: 22px;
+            cursor: pointer;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s ease;
+        }
+        #gps-btn:hover {
+            transform: scale(1.05);
+            background: #f8f9fa;
+        }
+        #gps-btn:active {
+            transform: scale(0.95);
+        }
+        body.sidebar-hidden #gps-btn {
+            display: none !important;
+        }
+        
+        /* Смещение кнопки на мобилках, чтобы она не перекрывалась кнопкой отправки */
+        @media (max-width: 768px) {
+            #gps-btn {
+                bottom: 90px;
+                right: 20px;
+                width: 45px;
+                height: 45px;
+                font-size: 18px;
+            }
+        }
