@@ -10,6 +10,8 @@
     let searchTimeout = null;
     let startPoint = null;
     let isRouteCurrentlyBuilt = false; // ИЗМЕНЕНИЕ: Переменная для отслеживания статуса маршрута
+    let gpsWatchId = null;       // Сюда запишется ID постоянного слежения, чтобы его можно было выключить
+    let userLocationMarker = null; // Отдельный маркер для текущего положения водителя
 
     // Drag-and-Drop
     const list = document.getElementById('address-list');
