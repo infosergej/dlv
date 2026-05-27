@@ -521,23 +521,29 @@ function findMyLocation() {
                     });
                     userLocationMarker = L.marker([lat, lng], { icon: driverIcon }).addTo(map)
                         .bindPopup("<b>Jūsų esama pozicija</b>");
-                    map.setView([lat, lng], 15);
+                    
+                    // Центрируем и приближаем карту при первом включении LIVE
+                    map.setView([lat, lng], 16); 
                 } else {
+                    // Если маркер уже есть — плавно двигаем его на новые координаты
                     userLocationMarker.setLatLng([lat, lng]);
+                    
+                    // ОБНОВЛЕНО: Карта автоматически следует за движением машинки
+                    // Метод panTo плавно сдвигает карту к новым координатам, без резких прыжков
+                    map.panTo([lat, lng]); 
                 }
             },
             (error) => {
                 resetGpsButton();
                 handleGpsError(error);
             },
-            { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
+            { 
+                enableHighAccuracy: true, 
+                timeout: 12000, 
+                maximumAge: 0 
+            }
         );
         return;
-    }
-
-    // === ШАГ 3: ТРЕТЬЕ НАЖАТИЕ — Полное отключение LIVE и сброс ===
-    if (gpsState === 2) {
-        resetGpsButton();
     }
 }
 
