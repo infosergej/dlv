@@ -461,89 +461,128 @@
     }
 
     // Пошаговое управление GPS: 1-й клик (Старт), 2-й клик (LIVE), 3-й клик (Выключение)
+    // Пошаговое управление GPS (Строго 1 нажатие = 1 действие)
 function findMyLocation() {
     if (!navigator.geolocation) {
-        alert("Jūsų naršyklė nepalaiko GPS функции.");
+        alert("Jūsų naršyklė nepalaiko GPS funkcijos.");
         return;
     }
 
     const gpsButton = document.getElementById('gps-btn');
 
-    // === ШАГ 1: ПЕРВОЕ НАЖАТИЕ — Одиночное определение Точки А (Старт) ===
-    if (gpsState === 0) {
-        gpsButton.innerText = "⏳"; // Показываем загрузку
+    switch (gpsState) {
+        case 0:
+            // === ШАГ 1: ПЕРВОЕ НАЖАТИЕ — Одиночный Старт ===
+            gpsButton.innerText = "⏳";
 
-        navigator.geolocation.getCurrentPosition(
-            (position) => {
-                const lat = position.coords.latitude;
-                const lng = position.coords.longitude;
-                const title = `Mano vieta (${lat.toFixed(4)}, ${lng.toFixed(4)})`;
-                
-                // Фиксируем точку старта
-                setStartPoint(title, lat, lng);
-                
-                // Переводим кнопку в состояние "Готов к LIVE"
-                gpsState = 1;
-                gpsButton.innerText = "🎯";
-                gpsButton.style.background = "#4285F4"; // Синий цвет — точка есть, но трекинг спит
-                gpsButton.style.color = "#ffffff";
-            },
-            (error) => {
-                resetGpsButton();
-                handleGpsError(error);
-            },
-            { enableHighAccuracy: true, timeout: 10000 }
-        );
-        return;
+            navigator.geolocation.getCurrentPosition(
+                (position) => {
+                    const lat = position.coords.latitude;
+                    const lng = position.coords.longitude;
+                    const title = `Mano vieta (${lat.toFixed(4)}, ${lng.toFixed(4)})`;
+                    
+                    setStartPoint(title, lat, lng);
+                    
+                    // Строго переключаем на шаг 1
+                    gpsState = 1;
+                    gpsButton.innerText = "🎯";
+                    gpsButton.style.background = "#4285F4"; // Синяя кнопка
+                    gpsButton.style.color = "#ffffff";
+                },
+                (error) => {
+                    resetGpsButton();
+                    handleGpsError(error);
+                },
+                { enableHighAccuracy: true, timeout: 10000 }
+            );
+            break;
+
+        case 1:
+            // === ШАГ 2: ВТОРОЕ НАЖАТИЕ — Включение LIVE трекинга ===
+            gpsButton.innerText = "⏳";
+
+            gpsWatchId = navigator.geolocation.watchPosition(
+                (position) => {
+                    const lat = position.coords.latitude;
+                    const lng = position.coords.longitude;
+                    
+                    // Переводим кнопку в режим LIVE (Зеленая)
+                    gpsButton.innerText = "🛰️";
+                    gpsButton.style.background = "var(--success)"; 
+                    gpsButton.style.color = "#ffffff";
+
+                    // Создаем или плавно передвигаем маркер машины
+                    if (userLocationMarker === null) {
+                        const driverIcon = L.divIcon({
+                            className: 'number-marker',
+                            html: '🚗',
+                            style: 'background: #4285F4; border-color: #ffffff;'
+                        });
+                        userLocationMarker = L.marker([lat, lng], { icon: driverIcon }).addTo(map)
+                            .bindPopup("<b>Jūsų esama pozicija</b>");
+                        map.setView([lat, lng], 16); 
+                    } else {
+                        userLocationMarker.setLatLng([lat, lng]);
+                        map.panTo([lat, lng]); // Плавно ведем карту за машиной
+                    }
+                },
+                (error) => {
+                    resetGpsButton();
+                    handleGpsError(error);
+                },
+                { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
+            );
+
+            // МГНОВЕННО переводим состояние кнопки в Шаг 2, 
+            // чтобы следующее нажатие сразу уходило в отключение, 
+            // не дожидаясь ответа от спутников
+            gpsState = 2; 
+            break;
+
+        case 2:
+            // === ШАГ 3: ТРЕТЬЕ НАЖАТИЕ — Полное отключение LIVE ===
+            resetGpsButton();
+            break;
     }
+}
 
-    // === ШАГ 2: ВТОРОЕ НАЖАТИЕ — Включение постоянного LIVE трекинга ===
-    if (gpsState === 1) {
-        gpsButton.innerText = "⏳";
+// Функция полного сброса (вызывается на 3-й клик или при ошибке)
+function resetGpsButton() {
+    const gpsButton = document.getElementById('gps-btn');
+    
+    // Одозначно останавливаем слежение в системе телефона
+    if (gpsWatchId !== null) {
+        navigator.geolocation.clearWatch(gpsWatchId);
+        gpsWatchId = null;
+    }
+    
+    // Убираем машинку с карты
+    if (userLocationMarker !== null) {
+        map.removeLayer(userLocationMarker);
+        userLocationMarker = null;
+    }
+    
+    // Сбрасываем статус в ноль и возвращаем белый цвет кнопке
+    gpsState = 0;
+    gpsButton.innerText = "🎯";
+    gpsButton.style.background = "#ffffff";
+    gpsButton.style.color = "#10111d";
+}
 
-        gpsWatchId = navigator.geolocation.watchPosition(
-            (position) => {
-                const lat = position.coords.latitude;
-                const lng = position.coords.longitude;
-                
-                // Переводим в полноценный LIVE режим
-                gpsState = 2;
-                gpsButton.innerText = "🛰️";
-                gpsButton.style.background = "var(--success)"; // Зеленый цвет — LIVE активен
-                gpsButton.style.color = "#ffffff";
-
-                // Создаем или двигаем маркер машины
-                if (userLocationMarker === null) {
-                    const driverIcon = L.divIcon({
-                        className: 'number-marker',
-                        html: '🚗',
-                        style: 'background: #4285F4; border-color: #ffffff;'
-                    });
-                    userLocationMarker = L.marker([lat, lng], { icon: driverIcon }).addTo(map)
-                        .bindPopup("<b>Jūsų esama pozicija</b>");
-                    
-                    // Центрируем и приближаем карту при первом включении LIVE
-                    map.setView([lat, lng], 16); 
-                } else {
-                    // Если маркер уже есть — плавно двигаем его на новые координаты
-                    userLocationMarker.setLatLng([lat, lng]);
-                    
-                    // ОБНОВЛЕНО: Карта автоматически следует за движением машинки
-                    // Метод panTo плавно сдвигает карту к новым координатам, без резких прыжков
-                    map.panTo([lat, lng]); 
-                }
-            },
-            (error) => {
-                resetGpsButton();
-                handleGpsError(error);
-            },
-            { 
-                enableHighAccuracy: true, 
-                timeout: 12000, 
-                maximumAge: 0 
-            }
-        );
-        return;
+// Функция вывода ошибок GPS
+function handleGpsError(error) {
+    switch(error.code) {
+        case error.PERMISSION_DENIED:
+            alert("Klaida: Jūs uždraudėte prieigą prie savo vietovės.");
+            break;
+        case error.POSITION_UNAVAILABLE:
+            alert("Klaida: Nepavyko nustatyti vietos.");
+            break;
+        case error.TIMEOUT:
+            alert("Klaida: Baigėsi vietos nustatymo laikas.");
+            break;
+        default:
+            alert("Įvyko nežinoma GPS klaida.");
     }
 }
 
