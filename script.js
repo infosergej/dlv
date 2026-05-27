@@ -459,53 +459,100 @@
     }
 
     // GPS vietos nustatymo funkcija
-    function findMyLocation() {
-        if (!navigator.geolocation) {
-            alert("Jūsų naršyklė nepalaiko GPS funkcijos.");
-            return;
-        }
-
-        const gpsButton = document.getElementById('gps-btn');
-        gpsButton.innerText = "⏳"; // Показываем иконку загрузки
-
-        navigator.geolocation.getCurrentPosition(
-            (position) => {
-                const lat = position.coords.latitude;
-                const lng = position.coords.longitude;
-                
-                // Текст, который запишется как имя стартовой точки
-                const title = `Mano vieta (${lat.toFixed(4)}, ${lng.toFixed(4)})`;
-                
-                // Используем уже готовую у вас функцию для установки точки А
-                setStartPoint(title, lat, lng);
-                
-                gpsButton.innerText = "🎯"; // Возвращаем иконку при успехе
-            },
-            (error) => {
-                gpsButton.innerText = "🎯"; // Возвращаем иконку при ошибке
-                
-                // Обработка базовых ошибок GPS
-                switch(error.code) {
-                    case error.PERMISSION_DENIED:
-                        alert("Klaida: Jūs uždraudėte prieigą prie savo vietovės.");
-                        break;
-                    case error.POSITION_UNAVAILABLE:
-                        alert("Klaida: Nepavyko nustatyti vietos (silpnas GPS signalas).");
-                        break;
-                    case error.TIMEOUT:
-                        alert("Klaida: Baigėsi vietos nustatymo laikas.");
-                        break;
-                    default:
-                        alert("Įvyko nežinoma GPS klaida.");
-                }
-            },
-            {
-                enableHighAccuracy: true, // Просим устройство использовать спутники (максимальная точность)
-                timeout: 10000,           /* Ждем ответ от спутников не более 10 секунд */
-                maximumAge: 0             /* Не берем старые данные из кэша, запрашиваем позицию в реальном времени */
-            }
-        );
+    // Автоматическое отслеживание перемещения водителя по GPS
+function findMyLocation() {
+    if (!navigator.geolocation) {
+        alert("Jūsų naršyklė nepalaiko GPS funkcijos.");
+        return;
     }
+
+    const gpsButton = document.getElementById('gps-btn');
+
+    // ЕСЛИ НАВИГАЦИЯ УЖЕ ВКЛЮЧЕНА — ВЫКЛЮЧАЕМ ЕЁ ПРИ ПОВТОРНОМ НАЖАТИИ
+    if (gpsWatchId !== null) {
+        navigator.geolocation.clearWatch(gpsWatchId);
+        gpsWatchId = null;
+        
+        if (userLocationMarker !== null) {
+            map.removeLayer(userLocationMarker);
+            userLocationMarker = null;
+        }
+        
+        gpsButton.innerText = "🎯";
+        gpsButton.style.background = "#ffffff";
+        gpsButton.style.color = "#10111d";
+        return;
+    }
+
+    // ВКЛЮЧАЕМ РЕЖИМ ПОСТОЯННОГО ОТСЛЕЖИВАНИЯ
+    gpsButton.innerText = "⏳";
+
+    gpsWatchId = navigator.geolocation.watchPosition(
+        (position) => {
+            const lat = position.coords.latitude;
+            const lng = position.coords.longitude;
+            
+            // Делаем кнопку активной (зеленой), показывая, что слежение работает в фоне
+            gpsButton.innerText = "🛰️";
+            gpsButton.style.background = "var(--success)";
+            gpsButton.style.color = "#ffffff";
+
+            // 1. Если это самый первый запуск — устанавливаем эту точку как Точку А (Старт)
+            if (!startPoint) {
+                const title = `Mano vieta (${lat.toFixed(4)}, ${lng.toFixed(4)})`;
+                setStartPoint(title, lat, lng);
+            }
+
+            // 2. Создаем или плавно передвигаем специальный синий маркер водителя на карте
+            if (userLocationMarker === null) {
+                // Создаем красивый синий маркер (как в стандартных навигаторах)
+                const driverIcon = L.divIcon({
+                    className: 'number-marker',
+                    html: '🚗', // Можно оставить иконку машинки или сделать синий кружок
+                    style: 'background: #4285F4; border-color: #ffffff;'
+                });
+                
+                userLocationMarker = L.marker([lat, lng], { icon: driverIcon }).addTo(map)
+                    .bindPopup("<b>Jūsų esama pozicija</b>");
+                
+                // Центрируем карту на водителе при первом обнаружении
+                map.setView([lat, lng], 15);
+            } else {
+                // Если маркер уже есть — просто плавно двигаем его на новые координаты
+                userLocationMarker.setLatLng([lat, lng]);
+            }
+        },
+        (error) => {
+            // Если произошла ошибка — сбрасываем статус кнопки
+            gpsButton.innerText = "🎯";
+            gpsButton.style.background = "#ffffff";
+            gpsButton.style.color = "#10111d";
+            if (gpsWatchId !== null) {
+                navigator.geolocation.clearWatch(gpsWatchId);
+                gpsWatchId = null;
+            }
+
+            switch(error.code) {
+                case error.PERMISSION_DENIED:
+                    alert("Klaida: Jūs uždraudėte prieigą prie savo vietovės.");
+                    break;
+                case error.POSITION_UNAVAILABLE:
+                    alert("Klaida: Nepavyko nustatyti tikslios vietos.");
+                    break;
+                case error.TIMEOUT:
+                    alert("Klaida: Baigėsi vietos nustatymo laikas.");
+                    break;
+                default:
+                    alert("Įvyko nežinoma GPS klaida.");
+            }
+        },
+        {
+            enableHighAccuracy: true, // Включаем максимальную точность (активирует GPS-чип смартфона)
+            timeout: 15000,           // Время ожидания спутников
+            maximumAge: 0             // Запрещаем брать старые координаты из кэша телефона
+        }
+    );
+}
 
     // Инициализация загрузки сохраненных данных при старте скрипта
     loadDataFromLocalStorage();
