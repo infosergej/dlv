@@ -1,0 +1,42 @@
+const CACHE_NAME = 'marsrutas-v1';
+// Файлы, которые мы сохраняем в память телефона
+const ASSETS = [
+  './',
+  './index.html',
+  './style.css',
+  './script.js',
+  './favicon.png'
+];
+
+// Установка Сервис-Воркера и кэширование ресурсов
+self.addEventListener('install', (event) => {
+  event.waitUntil(
+    caches.open(CACHE_NAME).then((cache) => {
+      return cache.addAll(ASSETS);
+    })
+  );
+});
+
+// Активация и очистка старого кэша
+self.addEventListener('activate', (event) => {
+  event.waitUntil(
+    caches.keys().then((keys) => {
+      return Promise.all(
+        keys.map((key) => {
+          if (key !== CACHE_NAME) {
+            return caches.delete(key);
+          }
+        })
+      );
+    })
+  );
+});
+
+// Стратегия: Сначала сеть, если сети нет — берем из кэша
+self.addEventListener('fetch', (event) => {
+  event.respondWith(
+    fetch(event.request).catch(() => {
+      return caches.match(event.request);
+    })
+  );
+});
