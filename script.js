@@ -450,7 +450,7 @@
 
         const numberIcon = L.divIcon({ className: 'number-marker', html: index + 1 });
         
-        const addressGpsUrl = `http://googleusercontent.com/maps.google.com/?q=${lat},${lng}`;
+        const addressGpsUrl = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
         
         // ОБНОВЛЕНО: Здесь тоже добавлена кнопка удаления по индексу
         const addressPopup = `
