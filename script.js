@@ -397,7 +397,7 @@
         
         const numberIcon = L.divIcon({ className: 'number-marker', html: index + 1 });
         
-        const googleMapsUrl = `http://googleusercontent.com/maps.google.com/?q=${lat},${lng}`;
+        const googleMapsUrl = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
         
         // ОБНОВЛЕНО: Добавлена кнопка "Pašalinti adresą" (Удалить адрес), которая вызывает новую функцию deleteItemByIndex
         const popupContent = `
