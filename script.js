@@ -180,68 +180,72 @@
     }
 
     function fetchSuggestions(query, type) {
-        const boxId = type === 'start' ? 'start-suggestions' : 'suggestions';
-        const suggestionsBox = document.getElementById(boxId);
-        const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&countrycodes=lt&addressdetails=1&accept-language=lt&limit=5`;
+    const boxId = type === 'start' ? 'start-suggestions' : 'suggestions';
+    const suggestionsBox = document.getElementById(boxId);
+    
+    // ОПТИМИЗАЦИЯ ЗАПРОСА: 
+    // viewbox=20.9,56.5,26.9,53.8 — это географические границы Литвы.
+    // bounded=1 — принудительно заставляет искать ИМЕННО внутри этих границ.
+    const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&countrycodes=lt&addressdetails=1&accept-language=lt&limit=7&viewbox=20.9,56.5,26.9,53.8&bounded=1`;
 
-        fetch(url)
-            .then(res => res.json())
-            .then(data => {
-                suggestionsBox.innerHTML = '';
+    fetch(url)
+        .then(res => res.json())
+        .then(data => {
+            suggestionsBox.innerHTML = '';
 
-                if (data && data.length > 0) {
-                    data.forEach(item => {
-                        const div = document.createElement('div');
-                        div.className = 'suggestion-item';
-                        
-                        const addr = item.address;
-                        let placeName = item.name || '';
-                        
-                        const street = addr.road || '';
-                        const house = addr.house_number || '';
-                        const city = addr.city || addr.town || addr.village || '';
-                        const suburb = addr.suburb || addr.neighbourhood || '';
-                        
-                        let addressParts = [];
-                        
-                        if (placeName && placeName !== street) {
-                            addressParts.push(placeName);
+            if (data && data.length > 0) {
+                data.forEach(item => {
+                    const div = document.createElement('div');
+                    div.className = 'suggestion-item';
+                    
+                    const addr = item.address;
+                    let placeName = item.name || '';
+                    
+                    const street = addr.road || addr.pedestrian || addr.cycleway || '';
+                    const house = addr.house_number || '';
+                    const city = addr.city || addr.town || addr.village || addr.municipality || '';
+                    const suburb = addr.suburb || addr.neighbourhood || '';
+                    
+                    let addressParts = [];
+                    
+                    if (placeName && placeName !== street && placeName !== city) {
+                        addressParts.push(placeName);
+                    }
+                    if (street) {
+                        addressParts.push(street + (house ? ' ' + house : ''));
+                    }
+                    if (suburb) addressParts.push(suburb);
+                    if (city) addressParts.push(city);
+
+                    let cleanAddress = addressParts.filter(Boolean).join(', ');
+                    
+                    // ЗАПАСНОЙ ПЛАН: Если склеенный адрес пустой или слишком короткий, 
+                    // берем полное имя от сервера (убирая "Lietuva" для красоты)
+                    if (!street || !cleanAddress || cleanAddress.length < 6) {
+                        cleanAddress = item.display_name.replace(', Lietuva', '');
+                    }
+
+                    div.innerText = cleanAddress;
+                    
+                    div.onclick = () => {
+                        if (type === 'start') {
+                            setStartPoint(cleanAddress, parseFloat(item.lat), parseFloat(item.lon));
+                        } else {
+                            addAddressToList(cleanAddress, parseFloat(item.lat), parseFloat(item.lon));
                         }
-                        if (street) {
-                            addressParts.push(street + (house ? ' ' + house : ''));
-                        }
-                        if (suburb) addressParts.push(suburb);
-                        if (city) addressParts.push(city);
-
-                        let cleanAddress = addressParts.filter(Boolean).join(', ');
-                        if(!cleanAddress) cleanAddress = item.display_name;
-
-                        div.innerText = cleanAddress;
-                        
-                        div.onclick = () => {
-                            if (type === 'start') {
-                                setStartPoint(cleanAddress, parseFloat(item.lat), parseFloat(item.lon));
-                            } else {
-                                addAddressToList(cleanAddress, parseFloat(item.lat), parseFloat(item.lon));
-                            }
-                            suggestionsBox.style.display = 'none';
-                            const inputId = type === 'start' ? 'start-input' : 'address-input';
-                            document.getElementById(inputId).value = '';
-                        };
-                        suggestionsBox.appendChild(div);
-                    });
-                    suggestionsBox.style.display = 'block';
-                } else {
-                    suggestionsBox.style.display = 'none';
-                }
-            })
-            .catch(() => {});
-    }
-
-    document.addEventListener('click', (e) => {
-        if (e.target.id !== 'address-input') document.getElementById('suggestions').style.display = 'none';
-        if (e.target.id !== 'start-input') document.getElementById('start-suggestions').style.display = 'none';
-    });
+                        suggestionsBox.style.display = 'none';
+                        const inputId = type === 'start' ? 'start-input' : 'address-input';
+                        document.getElementById(inputId).value = '';
+                    };
+                    suggestionsBox.appendChild(div);
+                });
+                suggestionsBox.style.display = 'block';
+            } else {
+                suggestionsBox.style.display = 'none';
+            }
+        })
+        .catch(() => {});
+}
 
     function setStartPoint(title, lat, lng) {
         clearRouteLine();
@@ -358,42 +362,55 @@
         }
     }
 
-    function refreshInitialMarkers() {
-        initialMarkersGroup.clearLayers();
-        if (startPoint) {
-            const startIcon = L.divIcon({ className: 'number-marker start-marker', html: 'S' });
-            
-            // Ссылка для Старта
-            const googleMapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${startPoint.lat},${startPoint.lng}`;
-            const popupContent = `
-                <div style="font-family: sans-serif; padding: 2px;">
-                    <b>Pradžia:</b> <span style="display:block; margin-bottom:8px; color:#555;">${startPoint.title}</span>
-                    <a href="${googleMapsUrl}" target="_blank" style="display: block; text-align: center; background: #4285F4; color: white; text-decoration: none; padding: 6px 10px; border-radius: 4px; font-size: 12px; font-weight: bold; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">🗺️ Google Maps Navigacija</a>
-                </div>
-            `;
-            
-            L.marker([startPoint.lat, startPoint.lng], { icon: startIcon }).addTo(initialMarkersGroup).bindPopup(popupContent);
-        }
+    // Функция удаления адреса при клике на кнопку внутри маркера на карте
+    function deleteItemByIndex(index) {
+    const items = document.querySelectorAll('.address-item');
+    if (items[index] && confirm("Ar tikrai norite pašalinti šį adresą iš maršruto?")) {
+        clearRouteLine();
+        items[index].remove(); // Удаляем элемент из HTML-списка
         
-        document.querySelectorAll('.address-item').forEach((item, index) => {
-            const lat = parseFloat(item.getAttribute('data-lat'));
-            const lng = parseFloat(item.getAttribute('data-lng'));
-            const title = item.getAttribute('data-title');
-            
-            const numberIcon = L.divIcon({ className: 'number-marker', html: index + 1 });
-            
-            // Ссылка для Точек доставки
-            const googleMapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
-            const popupContent = `
-                <div style="font-family: sans-serif; padding: 2px;">
-                    <b>${index + 1}. Gavėjas:</b> <span style="display:block; margin-bottom:8px; color:#555;">${title}</span>
-                    <a href="${googleMapsUrl}" target="_blank" style="display: block; text-align: center; background: #4285F4; color: white; text-decoration: none; padding: 6px 10px; border-radius: 4px; font-size: 12px; font-weight: bold; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">🗺️ Google Maps Navigacija</a>
-                </div>
-            `;
-            
-            L.marker([lat, lng], { icon: numberIcon }).addTo(initialMarkersGroup).bindPopup(popupContent);
-        });
+        updateListState();
+        refreshInitialMarkers();
+        saveDataToLocalStorage();
+        
+        // Если до удаления был включен LIVE режим, и в нем была машина,
+        // мы восстанавливаем трекинг, чтобы он не сбросился
+        if (gpsState === 2 && userLocationMarker !== null) {
+            const currentLatLng = userLocationMarker.getLatLng();
+            userLocationMarker.addTo(map); // Возвращаем машину на карту
+        }
     }
+}
+
+    function refreshInitialMarkers() {
+    initialMarkersGroup.clearLayers();
+    if (startPoint) {
+        const startIcon = L.divIcon({ className: 'number-marker start-marker', html: 'S' });
+        const popupContent = `<b>Pradžia:</b> ${startPoint.title}`;
+        L.marker([startPoint.lat, startPoint.lng], { icon: startIcon }).addTo(initialMarkersGroup).bindPopup(popupContent);
+    }
+    
+    document.querySelectorAll('.address-item').forEach((item, index) => {
+        const lat = parseFloat(item.getAttribute('data-lat'));
+        const lng = parseFloat(item.getAttribute('data-lng'));
+        const title = item.getAttribute('data-title');
+        
+        const numberIcon = L.divIcon({ className: 'number-marker', html: index + 1 });
+        
+        const googleMapsUrl = `http://googleusercontent.com/maps.google.com/?q=${lat},${lng}`;
+        
+        // ОБНОВЛЕНО: Добавлена кнопка "Pašalinti adresą" (Удалить адрес), которая вызывает новую функцию deleteItemByIndex
+        const popupContent = `
+            <div style="font-family: sans-serif; padding: 2px; min-width: 180px;">
+                <b>${index + 1}. Gavėjas:</b> <span style="display:block; margin-bottom:8px; color:#555;">${title}</span>
+                <a href="${googleMapsUrl}" target="_blank" style="display: block; text-align: center; background: #4285F4; color: white; text-decoration: none; padding: 6px 10px; border-radius: 4px; font-size: 12px; font-weight: bold; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 6px;">🗺️ Google Maps Navigacija</a>
+                <button onclick="deleteItemByIndex(${index})" style="width: 100%; background: #EA4335; color: white; border: none; padding: 6px 10px; border-radius: 4px; font-size: 11px; font-weight: bold; cursor: pointer;">🗑️ Pašalinti adresą</button>
+            </div>
+        `;
+        
+        L.marker([lat, lng], { icon: numberIcon }).addTo(initialMarkersGroup).bindPopup(popupContent);
+    });
+}
 
     function clearRouteLine() {
         if (routingControl !== null) { map.removeControl(routingControl); routingControl = null; }
@@ -426,23 +443,25 @@
         L.marker([startPoint.lat, startPoint.lng], { icon: startIcon }).addTo(routeMarkersGroup).bindPopup(startPopup);
 
         document.querySelectorAll('.address-item').forEach((item, index) => {
-            const lat = parseFloat(item.getAttribute('data-lat'));
-            const lng = parseFloat(item.getAttribute('data-lng'));
-            const title = item.getAttribute('data-title');
-            waypoints.push(L.latLng(lat, lng));
+        const lat = parseFloat(item.getAttribute('data-lat'));
+        const lng = parseFloat(item.getAttribute('data-lng'));
+        const title = item.getAttribute('data-title');
+        waypoints.push(L.latLng(lat, lng));
 
-            const numberIcon = L.divIcon({ className: 'number-marker', html: index + 1 });
-            
-            // Кнопка для точек доставки на проложенном маршруте
-            const addressGpsUrl = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
-            const addressPopup = `
-                <div style="font-family: sans-serif; padding: 2px;">
-                    <b>${index + 1}. ${title}</b>
-                    <a href="${addressGpsUrl}" target="_blank" style="display: block; text-align: center; background: #4285F4; color: white; text-decoration: none; padding: 6px 10px; border-radius: 4px; font-size: 12px; font-weight: bold; margin-top:8px;">🗺️ Google Maps Navigacija</a>
-                </div>
-            `;
-            L.marker([lat, lng], { icon: numberIcon }).addTo(routeMarkersGroup).bindPopup(addressPopup);
-        });
+        const numberIcon = L.divIcon({ className: 'number-marker', html: index + 1 });
+        
+        const addressGpsUrl = `http://googleusercontent.com/maps.google.com/?q=${lat},${lng}`;
+        
+        // ОБНОВЛЕНО: Здесь тоже добавлена кнопка удаления по индексу
+        const addressPopup = `
+            <div style="font-family: sans-serif; padding: 2px; min-width: 180px;">
+                <b>${index + 1}. ${title}</b>
+                <a href="${addressGpsUrl}" target="_blank" style="display: block; text-align: center; background: #4285F4; color: white; text-decoration: none; padding: 6px 10px; border-radius: 4px; font-size: 12px; font-weight: bold; margin-top:8px; margin-bottom: 6px;">🗺️ Google Maps Navigacija</a>
+                <button onclick="deleteItemByIndex(${index})" style="width: 100%; background: #EA4335; color: white; border: none; padding: 6px 10px; border-radius: 4px; font-size: 11px; font-weight: bold; cursor: pointer;">🗑️ Pašalinti adresą</button>
+            </div>
+        `;
+        L.marker([lat, lng], { icon: numberIcon }).addTo(routeMarkersGroup).bindPopup(addressPopup);
+    });
 
         routingControl = L.Routing.control({
             waypoints: waypoints,
