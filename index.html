@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="lt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Maršruto planavimo sistema ADPAKAS</title>
+    <meta name="description" content="Maršrutų planavimo įrankis kurjeriams: adresų sąrašas, maršruto sudarymas ir GPS navigacija." />
+    <meta name="theme-color" content="#0f172a" />
+
+    <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+    <link rel="apple-touch-icon" href="favicon.png" />
+    <link rel="manifest" href="manifest.json" />
+
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.css" />
+    <link rel="stylesheet" href="style.css">
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
+    <script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js" defer></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js" defer></script>
+    <script src="script.js" defer></script>
+
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Marsrutas" />
+</head>
+<body>
+    <svg class="icon-sprite" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
+        <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16" /></symbol>
+        <symbol id="i-gps" viewBox="0 0 24 24"><circle cx="12" cy="12" r="6.5" /><circle cx="12" cy="12" r="2.4" /><path d="M12 2.5v2.6M12 18.9v2.6M2.5 12h2.6M18.9 12h2.6" /></symbol>
+        <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.2-3.2" /></symbol>
+        <symbol id="i-grip" viewBox="0 0 24 24"><g fill="currentColor" stroke="none"><circle cx="9" cy="6" r="1.4" /><circle cx="15" cy="6" r="1.4" /><circle cx="9" cy="12" r="1.4" /><circle cx="15" cy="12" r="1.4" /><circle cx="9" cy="18" r="1.4" /><circle cx="15" cy="18" r="1.4" /></g></symbol>
+        <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9.5 7V5.5A1.5 1.5 0 0 1 11 4h2a1.5 1.5 0 0 1 1.5 1.5V7" /><path d="M6.5 7 7.4 19a2 2 0 0 0 2 1.9h5.2a2 2 0 0 0 2-1.9L17.5 7" /><path d="M10.5 11v6M13.5 11v6" /></symbol>
+        <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18" /></symbol>
+        <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 6.5" /></symbol>
+        <symbol id="i-package" viewBox="0 0 24 24"><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z" /><path d="M4 7.5 12 12l8-4.5M12 12v9" /></symbol>
+        <symbol id="i-route" viewBox="0 0 24 24"><path d="m3.5 11 18-7.5-7.5 18-2.3-8.2-8.2-2.3Z" /></symbol>
+        <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 21s7-6.2 7-11a7 7 0 1 0-14 0c0 4.8 7 11 7 11Z" /><circle cx="12" cy="10" r="2.5" /></symbol>
+        <symbol id="i-car" viewBox="0 0 24 24"><path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.3-1.4.8l-1.6 2.7C1.4 11.4 1 12.1 1 13v3c0 .6.4 1 1 1h2" /><circle cx="7" cy="17" r="2" /><path d="M9 17h6" /><circle cx="17" cy="17" r="2" /></symbol>
+        <symbol id="i-truck" viewBox="0 0 24 24"><path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2" /><path d="M15 18H9" /><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.62l-3.48-4.35A1 1 0 0 0 17.52 8H14" /><circle cx="17" cy="18" r="2" /><circle cx="7" cy="18" r="2" /></symbol>
+    </svg>
+
+    <button id="toggle-sidebar-btn" type="button" onclick="toggleSidebar()" aria-controls="sidebar" aria-expanded="true" title="Paslėpti meniu">
+        <svg class="icon" aria-hidden="true"><use href="#i-menu"></use></svg>
+        <span class="btn-label">Paslėpti meniu</span>
+    </button>
+
+    <button id="gps-btn" type="button" class="is-idle" onclick="findMyLocation()" title="Nustatyti mano vietą" aria-label="Nustatyti mano vietą">
+        <svg class="icon" aria-hidden="true"><use href="#i-gps"></use></svg>
+    </button>
+
+    <div id="sidebar">
+        <header class="sidebar-header">
+            <div class="brand">
+                <span class="brand-mark" aria-hidden="true"><svg class="icon"><use href="#i-truck"></use></svg></span>
+                <div class="brand-text">
+                    <h1>Maršrutas</h1>
+                    <p>ADPAKAS · kurjeriams</p>
+                </div>
+            </div>
+            <span class="badge" id="count">0 gavėjų</span>
+        </header>
+
+        <div class="sidebar-body">
+            <section class="block">
+                <div class="section-label">
+                    <span class="step step--start">A</span>
+                    Maršruto pradžia
+                </div>
+                <div class="search-container start-input-box">
+                    <svg class="search-icon" aria-hidden="true"><use href="#i-pin"></use></svg>
+                    <input type="text" id="start-input" class="search-input" placeholder="Įveskite starto vietą…" autocomplete="off" oninput="debounceSearch(this.value, 'start')">
+                    <div id="start-suggestions" class="suggestions-box" role="listbox" aria-label="Starto vietos pasiūlymai"></div>
+                </div>
+                <div id="start-point-display">
+                    <div class="start-point-main">
+                        <span class="start-point-check" aria-hidden="true"><svg class="icon icon-sm"><use href="#i-check"></use></svg></span>
+                        <span id="start-point-text" class="start-point-text"></span>
+                    </div>
+                    <button class="icon-btn" type="button" onclick="deleteStartPoint()" title="Pašalinti starto poziciją" aria-label="Pašalinti starto poziciją">
+                        <svg class="icon" aria-hidden="true"><use href="#i-close"></use></svg>
+                    </button>
+                </div>
+            </section>
+
+            <section class="block block--list">
+                <div class="section-label">
+                    <span class="step"><svg class="icon icon-sm" aria-hidden="true"><use href="#i-package"></use></svg></span>
+                    Pristatymo adresai
+                </div>
+                <div class="search-container delivery-input-box">
+                    <svg class="search-icon" aria-hidden="true"><use href="#i-search"></use></svg>
+                    <input type="text" id="address-input" class="search-input" placeholder="Įveskite gavėjo adresą…" autocomplete="off" oninput="debounceSearch(this.value, 'delivery')">
+                    <div id="suggestions" class="suggestions-box" role="listbox" aria-label="Adresų pasiūlymai"></div>
+                </div>
+                <ul id="address-list"></ul>
+            </section>
+        </div>
+
+        <div class="btn-container">
+            <div id="route-summary" class="route-summary" role="status" aria-live="polite" hidden>
+                <span id="route-summary-text"></span>
+            </div>
+            <button id="gmaps-route-btn" class="secondary-btn" type="button" onclick="openRouteInGoogleMaps()" hidden>
+                <svg class="icon" aria-hidden="true"><use href="#i-route"></use></svg>
+                Atidaryti maršrutą Google Maps
+            </button>
+            <button id="route-btn" type="button" onclick="buildFinalRoute()" disabled>
+                <svg class="icon" aria-hidden="true"><use href="#i-route"></use></svg>
+                Sukurti maršrutą
+            </button>
+        </div>
+    </div>
+
+    <div id="map"></div>
+
+    <div id="map-warning" class="map-warning" role="alert" hidden>
+        <div id="map-warning-text"></div>
+        <button type="button" class="map-warning-close" onclick="hideMapWarning()" aria-label="Uždaryti pranešimą">
+            <svg class="icon icon-sm" aria-hidden="true"><use href="#i-close"></use></svg>
+        </button>
+    </div>
+
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./sw.js')
+                    .then((reg) => console.log('Service Worker įregistruotas:', reg.scope))
+                    .catch((err) => console.error('Service Worker registro klaida:', err));
+            });
+        }
+    </script>
+</body>
+</html>
