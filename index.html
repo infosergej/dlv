@@ -2,7 +2,7 @@
 <html lang="lt">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <title>Maršruto planavimo sistema ADPAKAS</title>
     <meta name="description" content="Maršrutų planavimo įrankis kurjeriams: adresų sąrašas, maršruto sudarymas ir GPS navigacija." />
     <meta name="theme-color" content="#0f172a" />
@@ -12,11 +12,9 @@
     <link rel="manifest" href="manifest.json" />
 
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.css" />
     <link rel="stylesheet" href="style.css">
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
-    <script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js" defer></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js" defer></script>
     <script src="script.js" defer></script>
 
@@ -38,6 +36,8 @@
         <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 21s7-6.2 7-11a7 7 0 1 0-14 0c0 4.8 7 11 7 11Z" /><circle cx="12" cy="10" r="2.5" /></symbol>
         <symbol id="i-car" viewBox="0 0 24 24"><path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.3-1.4.8l-1.6 2.7C1.4 11.4 1 12.1 1 13v3c0 .6.4 1 1 1h2" /><circle cx="7" cy="17" r="2" /><path d="M9 17h6" /><circle cx="17" cy="17" r="2" /></symbol>
         <symbol id="i-truck" viewBox="0 0 24 24"><path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2" /><path d="M15 18H9" /><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.62l-3.48-4.35A1 1 0 0 0 17.52 8H14" /><circle cx="17" cy="18" r="2" /><circle cx="7" cy="18" r="2" /></symbol>
+        <symbol id="i-key" viewBox="0 0 24 24"><path d="M2.6 17.4A2 2 0 0 0 2 18.8V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.2a2 2 0 0 0 1.4-.6l.8-.8a6.5 6.5 0 1 0-4-4Z" /><circle cx="16.5" cy="7.5" r=".6" fill="currentColor" /></symbol>
+        <symbol id="i-sparkles" viewBox="0 0 24 24"><path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z" /><path d="M5 3v4M3 5h4M19 17v4M17 19h4" /></symbol>
     </svg>
 
     <button id="toggle-sidebar-btn" type="button" onclick="toggleSidebar()" aria-controls="sidebar" aria-expanded="true" title="Paslėpti meniu">
@@ -58,7 +58,12 @@
                     <p>ADPAKAS · kurjeriams</p>
                 </div>
             </div>
-            <span class="badge" id="count">0 gavėjų</span>
+            <div class="header-actions">
+                <span class="badge" id="count">0 gavėjų</span>
+                <button id="settings-btn" class="icon-btn" type="button" onclick="openSettingsDialog()" title="HeiGIT API raktas" aria-label="HeiGIT API raktas">
+                    <svg class="icon icon-sm" aria-hidden="true"><use href="#i-key"></use></svg>
+                </button>
+            </div>
         </header>
 
         <div class="sidebar-body">
@@ -98,13 +103,19 @@
         </div>
 
         <div class="btn-container">
-            <div id="route-summary" class="route-summary" role="status" aria-live="polite" hidden>
-                <span id="route-summary-text"></span>
+            <div class="action-row">
+                <div id="route-summary" class="route-summary" role="status" aria-live="polite" hidden>
+                    <span id="route-summary-text"></span>
+                </div>
+                <button id="optimize-btn" class="secondary-btn secondary-btn--accent" type="button" onclick="optimizeRoute()" title="Sudėlioti adresus optimalia tvarka" aria-label="Optimalus maršrutas" hidden>
+                    <svg class="icon" aria-hidden="true"><use href="#i-sparkles"></use></svg>
+                    <span class="btn-text">Optimalus maršrutas</span>
+                </button>
+                <button id="gmaps-route-btn" class="secondary-btn" type="button" onclick="openRouteInGoogleMaps()" aria-label="Atidaryti maršrutą Google Maps" hidden>
+                    <svg class="icon" aria-hidden="true"><use href="#i-route"></use></svg>
+                    <span class="btn-text">Atidaryti maršrutą Google Maps</span>
+                </button>
             </div>
-            <button id="gmaps-route-btn" class="secondary-btn" type="button" onclick="openRouteInGoogleMaps()" hidden>
-                <svg class="icon" aria-hidden="true"><use href="#i-route"></use></svg>
-                Atidaryti maršrutą Google Maps
-            </button>
             <button id="route-btn" type="button" onclick="buildFinalRoute()" disabled>
                 <svg class="icon" aria-hidden="true"><use href="#i-route"></use></svg>
                 Sukurti maršrutą
@@ -120,6 +131,32 @@
             <svg class="icon icon-sm" aria-hidden="true"><use href="#i-close"></use></svg>
         </button>
     </div>
+
+    <dialog id="settings-dialog" class="settings-dialog" aria-labelledby="settings-title">
+        <form id="settings-form" class="settings-form" method="dialog">
+            <div class="settings-head">
+                <div>
+                    <h2 id="settings-title">HeiGIT API raktas</h2>
+                    <p class="settings-sub">openrouteservice · maršrutai ir optimizavimas</p>
+                </div>
+                <button type="button" class="icon-btn" onclick="closeSettingsDialog()" title="Uždaryti" aria-label="Uždaryti">
+                    <svg class="icon" aria-hidden="true"><use href="#i-close"></use></svg>
+                </button>
+            </div>
+
+            <label class="settings-label" for="ors-key-input">API raktas</label>
+            <input id="ors-key-input" class="search-input settings-input" type="password" autocomplete="off" spellcheck="false" placeholder="Įklijuokite raktą…">
+
+            <p class="settings-hint">Raktas saugomas tik šioje naršyklėje (localStorage). Jis siunčiamas tik į api.openrouteservice.org.</p>
+            <p id="settings-status" class="settings-status" role="status" aria-live="polite" hidden></p>
+
+            <div class="settings-actions">
+                <a class="settings-link" href="https://openrouteservice.org/dev/#/signup" target="_blank" rel="noopener">Gauti nemokamą raktą</a>
+                <button type="button" id="settings-clear-btn" class="settings-clear" onclick="clearOrsKey()" hidden>Pašalinti</button>
+                <button type="submit" class="settings-save">Išsaugoti</button>
+            </div>
+        </form>
+    </dialog>
 
     <script>
         if ('serviceWorker' in navigator) {

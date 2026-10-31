@@ -3,7 +3,7 @@
 //  - programos apvalkalas (HTML/CSS/JS) -> tinklas pirmiausia, kai nėra tinklo - talpykla
 //  - CDN bibliotekos -> stale-while-revalidate
 //  - žemėlapio plytelės -> talpykla pirmiausia (ribotas kiekis)
-const CACHE_VERSION = 'v6';
+const CACHE_VERSION = 'v9';
 const SHELL_CACHE = `marsrutas-shell-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `marsrutas-runtime-${CACHE_VERSION}`;
 const TILE_CACHE = `marsrutas-tiles-${CACHE_VERSION}`;
@@ -131,5 +131,5 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(staleWhileRevalidate(request, RUNTIME_CACHE));
   }
 
-  // Nominatim / OSRM užklausos visada eina į tinklą (duomenys turi būti švieži)
+  // Nominatim / HeiGIT (openrouteservice) užklausos visada eina į tinklą (duomenys turi būti švieži)
 });

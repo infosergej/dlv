@@ -80,7 +80,9 @@
 
     let initialMarkersGroup = L.layerGroup().addTo(map);
     let routeMarkersGroup = L.layerGroup().addTo(map);
-    let routingControl = null;
+    let routeLineLayer = null;         // Sudaryto maršruto linija (HeiGIT)
+    let routeRequestId = 0;            // Apsauga nuo pasenusių atsakymų
+    let isOptimizing = false;
     let searchTimeout = null;
     let startPoint = null;
     let isRouteCurrentlyBuilt = false; // ИЗМЕНЕНИЕ: Переменная для отслеживания статуса маршрута
@@ -91,6 +93,11 @@
     let followUser = true;         // Следить ли за машиной автоматически
     let searchAbortController = null; // Позволяет отменить устаревший запрос автодополнения
     const MAX_GOOGLE_WAYPOINTS = 9; // Google Maps принимает не более 9 промежуточных точек
+
+    // HeiGIT (openrouteservice): maršrutai ir adresų eiliškumo optimizavimas
+    const ORS_BASE_URL = 'https://api.openrouteservice.org';
+    const ORS_PROFILE = 'driving-car';
+    const ORS_KEY_STORAGE = 'adpakas_ors_api_key';
     
 
     // --- Вспомогательные функции ---
@@ -161,6 +168,8 @@
 
         text.textContent = `${formatDistance(distanceMeters)} · ${formatDuration(timeSeconds)}`;
         box.hidden = false;
+        // Kompaktiška veiksmų eilutė telefone
+        document.body.classList.add('has-route-summary');
         setRouteActionsVisible(true);
     }
 
@@ -171,12 +180,14 @@
 
         text.textContent = message;
         box.hidden = false;
+        document.body.classList.remove('has-route-summary');
         setRouteActionsVisible(false);
     }
 
     function hideRouteSummary() {
         const box = document.getElementById('route-summary');
         if (box) box.hidden = true;
+        document.body.classList.remove('has-route-summary');
         setRouteActionsVisible(false);
     }
 
@@ -188,6 +199,163 @@
     function hasDeliveryPoints() {
         return document.querySelectorAll('.address-item').length > 0;
     }
+
+    // --- HeiGIT (openrouteservice) ---
+
+    function getOrsKey() {
+        try {
+            return (localStorage.getItem(ORS_KEY_STORAGE) || '').trim();
+        } catch (error) {
+            return '';
+        }
+    }
+
+    function setOrsKey(key) {
+        try {
+            if (key) localStorage.setItem(ORS_KEY_STORAGE, key);
+            else localStorage.removeItem(ORS_KEY_STORAGE);
+        } catch (error) {
+            console.warn('Nepavyko išsaugoti API rakto:', error);
+        }
+        updateSettingsButtonState();
+    }
+
+    function updateSettingsButtonState() {
+        const btn = document.getElementById('settings-btn');
+        if (!btn) return;
+
+        const hasKey = Boolean(getOrsKey());
+        btn.classList.toggle('has-key', hasKey);
+        const label = hasKey ? 'HeiGIT API raktas (įvestas)' : 'HeiGIT API raktas';
+        btn.title = label;
+        btn.setAttribute('aria-label', label);
+    }
+
+    function openSettingsDialog(message) {
+        const dialog = document.getElementById('settings-dialog');
+        if (!dialog) return;
+
+        const input = document.getElementById('ors-key-input');
+        const status = document.getElementById('settings-status');
+        const clearBtn = document.getElementById('settings-clear-btn');
+
+        input.value = getOrsKey();
+        status.hidden = !message;
+        status.textContent = message || '';
+        clearBtn.hidden = !getOrsKey();
+
+        if (typeof dialog.showModal === 'function') {
+            if (!dialog.open) dialog.showModal();
+        } else {
+            dialog.setAttribute('open', '');
+        }
+
+        setTimeout(() => input.focus(), 60);
+    }
+
+    function closeSettingsDialog() {
+        const dialog = document.getElementById('settings-dialog');
+        if (!dialog) return;
+        if (typeof dialog.close === 'function') dialog.close();
+        else dialog.removeAttribute('open');
+    }
+
+    function saveOrsKey(event) {
+        event.preventDefault();
+        const input = document.getElementById('ors-key-input');
+        const status = document.getElementById('settings-status');
+        const key = input.value.trim();
+
+        if (!key) {
+            status.hidden = false;
+            status.textContent = 'Įveskite API raktą.';
+            return;
+        }
+
+        setOrsKey(key);
+        closeSettingsDialog();
+    }
+
+    function clearOrsKey() {
+        setOrsKey('');
+        document.getElementById('ors-key-input').value = '';
+        document.getElementById('settings-clear-btn').hidden = true;
+        const status = document.getElementById('settings-status');
+        status.hidden = false;
+        status.textContent = 'Raktas pašalintas.';
+    }
+
+    async function describeOrsError(response) {
+        let detail = '';
+        try {
+            const data = await response.json();
+            if (data && data.error) detail = data.error.message || data.error;
+        } catch (error) { /* atsakymas be JSON */ }
+
+        if (response.status === 401 || response.status === 403) {
+            return 'HeiGIT atmetė API raktą. Patikrinkite jį nustatymuose.';
+        }
+        if (response.status === 429) {
+            return 'Viršytas HeiGIT užklausų limitas. Pabandykite po kelių minučių.';
+        }
+        const suffix = typeof detail === 'string' && detail ? ` (${detail})` : '';
+        return `HeiGIT klaida (${response.status})${suffix}`;
+    }
+
+    // Tinklo / CORS klaidos neturi rodyti angl. „Failed to fetch“
+    function describeOrsFailure(error, fallback) {
+        const message = error && typeof error.message === 'string' ? error.message : '';
+        const isNetwork = (error && error.name === 'TypeError')
+            || /failed to fetch|network ?error|load failed|network request failed/i.test(message);
+
+        if (isNetwork) {
+            return 'Nepavyko susisiekti su HeiGIT. Patikrinkite interneto ryšį ir API raktą nustatymuose.';
+        }
+        return message || fallback;
+    }
+
+    async function fetchOrsDirections(coordinates, key) {
+        const response = await fetch(`${ORS_BASE_URL}/v2/directions/${ORS_PROFILE}/geojson`, {
+            method: 'POST',
+            headers: {
+                'Authorization': key,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ coordinates, instructions: false })
+        });
+
+        if (!response.ok) throw new Error(await describeOrsError(response));
+
+        const data = await response.json();
+        const feature = data && Array.isArray(data.features) ? data.features[0] : null;
+        if (!feature || !feature.geometry || !Array.isArray(feature.geometry.coordinates)) {
+            throw new Error('HeiGIT negrąžino maršruto geometrijos.');
+        }
+        return feature;
+    }
+
+    function drawRouteOnMap(feature) {
+        const latlngs = feature.geometry.coordinates
+            .map((coord) => [toFiniteNumber(coord[1]), toFiniteNumber(coord[0])])
+            .filter(([lat, lng]) => lat !== null && lng !== null);
+
+        if (latlngs.length < 2) throw new Error('HeiGIT negrąžino maršruto linijos.');
+
+        if (routeLineLayer !== null) {
+            map.removeLayer(routeLineLayer);
+            routeLineLayer = null;
+        }
+
+        routeLineLayer = L.layerGroup([
+            L.polyline(latlngs, { color: '#ffffff', weight: 9, opacity: 0.9 }),
+            L.polyline(latlngs, { color: '#4f46e5', weight: 5, opacity: 1 })
+        ]).addTo(map);
+
+        if (typeof map.fitBounds === 'function' && typeof L.latLngBounds === 'function') {
+            map.fitBounds(L.latLngBounds(latlngs), { padding: [28, 28], maxZoom: 16 });
+        }
+    }
+
 
     // Drag-and-Drop
     const list = document.getElementById('address-list');
@@ -471,8 +639,17 @@
     function updateListState() {
         const items = document.querySelectorAll('.address-item');
         const total = items.length;
+        const canBuildRoute = Boolean(startPoint) && total >= 1;
+        const canOptimize = Boolean(startPoint) && total >= 2;
+
         document.getElementById('count').textContent = `${total} gavėjų`;
-        document.getElementById('route-btn').disabled = !(startPoint && total >= 1);
+        document.getElementById('route-btn').disabled = !canBuildRoute || isOptimizing;
+
+        const optimizeBtn = document.getElementById('optimize-btn');
+        if (optimizeBtn) {
+            optimizeBtn.hidden = !canOptimize;
+            optimizeBtn.disabled = !canOptimize || isOptimizing;
+        }
 
         items.forEach((item, index) => {
             const select = item.querySelector('.position-select');
@@ -611,13 +788,23 @@
     });
 }
 
-    function clearRouteLine() {
-        if (routingControl !== null) { map.removeControl(routingControl); routingControl = null; }
+    // Nuima maršruto liniją ir žymeklius, bet neliečia sąrašo
+    function clearRouteDrawing() {
+        routeRequestId++;
+        if (routeLineLayer !== null) {
+            map.removeLayer(routeLineLayer);
+            routeLineLayer = null;
+        }
         routeMarkersGroup.clearLayers();
-        isRouteCurrentlyBuilt = false; // ИЗМЕНЕНИЕ: Сбрасываем статус при стирании линии
+        initialMarkersGroup.clearLayers();
+        isRouteCurrentlyBuilt = false;
         hideRouteSummary();
+    }
+
+    function clearRouteLine() {
+        clearRouteDrawing();
         refreshInitialMarkers();
-        saveDataToLocalStorage(); // ИЗМЕНЕНИЕ: Сохраняем факт того, что маршрут сброшен
+        saveDataToLocalStorage(); // Išsaugome faktą, kad maršrutas srušytas
     }
 
     // Открывает весь маршрут (старт + все адреса) в Google Maps для навигации
@@ -654,18 +841,15 @@
     }
 
     // ИЗМЕНЕНИЕ: Добавлен аргумент shouldScroll (по умолчанию true), чтобы страница не прыгала при автозагрузке
-   function buildFinalRoute(shouldScroll = true) {
-        if (!startPoint) return;
-        if (routingControl !== null) { map.removeControl(routingControl); }
-        routeMarkersGroup.clearLayers();
-        initialMarkersGroup.clearLayers();
-        hideRouteSummary();
+    // Sudaro maršrutą per HeiGIT (openrouteservice) Directions API
+    async function buildFinalRoute(shouldScroll = true) {
+        if (!startPoint) return false;
 
-        const waypoints = [];
-        waypoints.push(L.latLng(startPoint.lat, startPoint.lng));
-        
+        clearRouteDrawing();
+        const requestId = routeRequestId;
+
         const startIcon = L.divIcon({ className: 'number-marker start-marker', html: 'S' });
-        
+
         // Кнопка для старта на проложенном маршруте
         const startGpsUrl = `https://www.google.com/maps/dir/?api=1&destination=${startPoint.lat},${startPoint.lng}`;
         const startPopup = `
@@ -677,60 +861,178 @@
         `;
         L.marker([startPoint.lat, startPoint.lng], { icon: startIcon }).addTo(routeMarkersGroup).bindPopup(startPopup);
 
+        const coordinates = [[startPoint.lng, startPoint.lat]];
+
         document.querySelectorAll('.address-item').forEach((item, index) => {
-        const lat = parseFloat(item.getAttribute('data-lat'));
-        const lng = parseFloat(item.getAttribute('data-lng'));
-        const title = item.getAttribute('data-title');
-        waypoints.push(L.latLng(lat, lng));
+            const lat = parseFloat(item.getAttribute('data-lat'));
+            const lng = parseFloat(item.getAttribute('data-lng'));
+            const title = item.getAttribute('data-title');
+            coordinates.push([lng, lat]);
 
-        const numberIcon = L.divIcon({ className: 'number-marker', html: index + 1 });
-        
-        const addressGpsUrl = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
-        
-        // ОБНОВЛЕНО: Здесь тоже добавлена кнопка удаления по индексу
-        const addressPopup = `
-            <div class="info-popup">
-                <div class="info-popup__eyebrow">Gavėjas ${index + 1}</div>
-                <div class="info-popup__title">${escapeHtml(title)}</div>
-                <div class="info-popup__meta">${lat.toFixed(4)}, ${lng.toFixed(4)}</div>
-                <a class="info-popup__btn" href="${addressGpsUrl}" target="_blank" rel="noopener">Google Maps</a>
-                <button class="info-popup__btn info-popup__btn--danger" onclick="deleteItemByIndex(${index})">Pašalinti adresą</button>
-            </div>
-        `;
-        L.marker([lat, lng], { icon: numberIcon }).addTo(routeMarkersGroup).bindPopup(addressPopup);
-    });
+            const numberIcon = L.divIcon({ className: 'number-marker', html: index + 1 });
 
-        routingControl = L.Routing.control({
-            waypoints: waypoints,
-            lineOptions: { styles: [
-                { color: '#ffffff', weight: 9, opacity: 0.9 },
-                { color: '#4f46e5', weight: 5, opacity: 1 }
-            ] },
-            createMarker: function() { return null; },
-            addWaypoints: false,
-            show: false
-        }).addTo(map);
+            const addressGpsUrl = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
 
-        // Показываем общую дистанцию и время маршрута
-        routingControl.on('routesfound', (event) => {
-            const summary = event.routes && event.routes[0] ? event.routes[0].summary : null;
-            if (!summary) {
-                showRouteSummaryMessage('Maršrutas sukurtas, bet nepavyko gauti jo santraukos.');
-                return;
-            }
-            showRouteSummary(summary.totalDistance, summary.totalTime);
+            const addressPopup = `
+                <div class="info-popup">
+                    <div class="info-popup__eyebrow">Gavėjas ${index + 1}</div>
+                    <div class="info-popup__title">${escapeHtml(title)}</div>
+                    <div class="info-popup__meta">${lat.toFixed(4)}, ${lng.toFixed(4)}</div>
+                    <a class="info-popup__btn" href="${addressGpsUrl}" target="_blank" rel="noopener">Google Maps</a>
+                    <button class="info-popup__btn info-popup__btn--danger" onclick="deleteItemByIndex(${index})">Pašalinti adresą</button>
+                </div>
+            `;
+            L.marker([lat, lng], { icon: numberIcon }).addTo(routeMarkersGroup).bindPopup(addressPopup);
         });
 
-        routingControl.on('routingerror', () => {
-            showRouteSummaryMessage('Nepavyko apskaičiuoti maršruto. Patikrinkite interneto ryšį ir bandykite dar kartą.');
-        });
-
-        isRouteCurrentlyBuilt = true; 
-        saveDataToLocalStorage();    
-
-        if (shouldScroll && window.innerWidth <= 768) {
-            window.scrollTo({ top: 0, behavior: 'smooth' });
+        const key = getOrsKey();
+        if (!key) {
+            showRouteSummaryMessage('Įveskite HeiGIT API raktą, kad būtų apskaičiuotas maršrutas.');
+            saveDataToLocalStorage();
+            openSettingsDialog('Norint apskaičiuoti maršrutą, įveskite HeiGIT API raktą.');
+            return false;
         }
+
+        showRouteSummaryMessage('Skaičiuojamas maršrutas…');
+
+        try {
+            const feature = await fetchOrsDirections(coordinates, key);
+            if (requestId !== routeRequestId) return false;
+
+            drawRouteOnMap(feature);
+
+            const summary = feature.properties && feature.properties.summary;
+            if (summary && Number.isFinite(summary.distance) && Number.isFinite(summary.duration)) {
+                showRouteSummary(summary.distance, summary.duration);
+            } else {
+                showRouteSummaryMessage('Maršrutas sukurtas, bet nepavyko gauti jo santraukos.');
+            }
+
+            isRouteCurrentlyBuilt = true;
+            saveDataToLocalStorage();
+
+            if (shouldScroll && window.innerWidth <= 768) {
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            }
+            return true;
+        } catch (error) {
+            if (requestId !== routeRequestId) return false;
+            console.warn('[ORS] Maršruto klaida:', error);
+            showRouteSummaryMessage(describeOrsFailure(
+                error,
+                'Nepavyko apskaičiuoti maršruto. Patikrinkite interneto ryšį ir bandykite dar kartą.'
+            ));
+            isRouteCurrentlyBuilt = false;
+            saveDataToLocalStorage();
+            return false;
+        }
+    }
+
+    // HeiGIT Optimization (VROOM): sudėlioja adresus optimalia tvarka ir perbraižo maršrutą
+    async function optimizeRoute() {
+        if (isOptimizing || !startPoint) return;
+
+        const items = Array.from(document.querySelectorAll('.address-item'));
+        if (items.length < 2) return;
+
+        const key = getOrsKey();
+        if (!key) {
+            openSettingsDialog('Norint apskaičiuoti optimalų maršrutą, įveskite HeiGIT API raktą.');
+            return;
+        }
+
+        const jobs = items.map((item, index) => ({
+            id: index,
+            location: [
+                toFiniteNumber(item.getAttribute('data-lng')),
+                toFiniteNumber(item.getAttribute('data-lat'))
+            ]
+        })).filter((job) => job.location[0] !== null && job.location[1] !== null);
+
+        if (jobs.length < 2) return;
+
+        setOptimizingState(true);
+
+        try {
+            const response = await fetch(`${ORS_BASE_URL}/optimization`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': key,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    jobs: jobs,
+                    vehicles: [{
+                        id: 0,
+                        profile: ORS_PROFILE,
+                        start: [startPoint.lng, startPoint.lat]
+                    }]
+                })
+            });
+
+            if (!response.ok) throw new Error(await describeOrsError(response));
+
+            const data = await response.json();
+            if (!data || data.code !== 0) throw new Error('HeiGIT negalėjo suplanuoti optimalaus maršruto.');
+
+            const route = Array.isArray(data.routes) ? data.routes[0] : null;
+            const order = route && Array.isArray(route.steps)
+                ? route.steps.filter((step) => step.type === 'job').map((step) => step.job)
+                : [];
+
+            if (order.length < 2) throw new Error('HeiGIT negrąžino optimizuotos tvarkos.');
+
+            if (Array.isArray(data.unassigned) && data.unassigned.length > 0) {
+                console.warn('[ORS] Nepriskirti adresai:', data.unassigned);
+            }
+
+            applyOptimizedOrder(order);
+            await buildFinalRoute(true);
+        } catch (error) {
+            console.warn('[ORS] Optimizavimo klaida:', error);
+            showRouteSummaryMessage(describeOrsFailure(
+                error,
+                'Nepavyko apskaičiuoti optimalaus maršruto.'
+            ));
+        } finally {
+            setOptimizingState(false);
+        }
+    }
+
+    function applyOptimizedOrder(order) {
+        const listContainer = document.getElementById('address-list');
+        const items = Array.from(document.querySelectorAll('.address-item'));
+        const ordered = [];
+
+        order.forEach((jobId) => {
+            const item = items[jobId];
+            if (item && !ordered.includes(item)) ordered.push(item);
+        });
+
+        // Adresai, kurių optimizatorius nepriskyrė, lieka sąrašo gale
+        items.forEach((item) => {
+            if (!ordered.includes(item)) ordered.push(item);
+        });
+
+        ordered.forEach((item) => listContainer.appendChild(item));
+
+        updateListState();
+        refreshInitialMarkers();
+        saveDataToLocalStorage();
+    }
+
+    function setOptimizingState(busy) {
+        isOptimizing = busy;
+        document.body.classList.toggle('is-busy', busy);
+        updateListState();
+
+        const btn = document.getElementById('optimize-btn');
+        const label = btn ? btn.querySelector('.btn-text') : null;
+        if (!btn) return;
+
+        btn.classList.toggle('is-loading', busy);
+        btn.setAttribute('aria-busy', String(busy));
+        if (label) label.textContent = busy ? 'Skaičiuojama…' : 'Optimalus maršrutas';
     }
 
     // Пошаговое управление GPS: 1-й клик (Старт), 2-й клик (LIVE), 3-й клик (Выключение)
@@ -899,6 +1201,24 @@ function handleGpsError(error) {
             alert("Įvyko nežinoma GPS klaida.");
     }
 }
+
+    // Išjungiame puslapio mastelio keitimą telefone (Safari atveju)
+    ['gesturestart', 'gesturechange', 'gestureend'].forEach((eventName) => {
+        document.addEventListener(eventName, (event) => event.preventDefault(), { passive: false });
+    });
+
+    // Nustatymų langas (HeiGIT API raktas)
+    const settingsDialog = document.getElementById('settings-dialog');
+    if (settingsDialog) {
+        settingsDialog.addEventListener('click', (event) => {
+            if (event.target === settingsDialog) closeSettingsDialog();
+        });
+    }
+
+    const settingsForm = document.getElementById('settings-form');
+    if (settingsForm) settingsForm.addEventListener('submit', saveOrsKey);
+
+    updateSettingsButtonState();
 
     // Инициализация загрузки сохраненных данных при старте скрипта
     loadDataFromLocalStorage();

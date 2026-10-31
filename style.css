@@ -27,6 +27,8 @@
 html,
 body {
     height: 100%;
+    /* Puslapio mastelio keitimas telefone išjungtas – zoom lieka tik žemėlapyje */
+    touch-action: pan-x pan-y;
 }
 
 body {
@@ -103,6 +105,38 @@ body.sidebar-hidden #sidebar {
     gap: 12px;
     padding: 20px 20px 16px;
     border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.header-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+#settings-btn {
+    width: 32px;
+    height: 32px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--surface);
+    color: var(--muted);
+}
+
+#settings-btn:hover {
+    background: var(--surface-2);
+    color: #ffffff;
+}
+
+#settings-btn.has-key {
+    border-color: rgba(34, 197, 94, 0.36);
+    background: rgba(34, 197, 94, 0.14);
+    color: var(--success-soft);
+}
+
+#settings-btn.has-key:hover {
+    background: rgba(34, 197, 94, 0.2);
+    color: #ffffff;
 }
 
 .brand {
@@ -509,6 +543,10 @@ body.sidebar-hidden #sidebar {
     background: var(--sidebar);
 }
 
+.action-row {
+    display: block;
+}
+
 .route-summary {
     display: flex;
     align-items: center;
@@ -581,6 +619,54 @@ body.sidebar-hidden #sidebar {
     color: #ffffff;
 }
 
+.secondary-btn--accent {
+    border-color: rgba(99, 102, 241, 0.42);
+    background: rgba(99, 102, 241, 0.12);
+    color: #c7d2fe;
+}
+
+.secondary-btn--accent:hover:not(:disabled) {
+    background: rgba(99, 102, 241, 0.2);
+    color: #ffffff;
+}
+
+.secondary-btn:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+#optimize-btn.is-loading {
+    pointer-events: none;
+}
+
+#optimize-btn.is-loading .icon {
+    display: none;
+}
+
+#optimize-btn.is-loading::before {
+    content: "";
+    width: 15px;
+    height: 15px;
+    border: 2px solid rgba(199, 210, 254, 0.35);
+    border-top-color: #c7d2fe;
+    border-radius: 50%;
+    animation: btn-spin 0.7s linear infinite;
+}
+
+@keyframes btn-spin {
+    to { transform: rotate(360deg); }
+}
+
+/* Kol skaičiuojamas optimalus maršrutas – sąrašo neleidžiame keisti */
+body.is-busy .sidebar-body,
+body.is-busy .btn-container {
+    pointer-events: none;
+}
+
+body.is-busy .sidebar-body {
+    opacity: 0.72;
+}
+
 button:focus-visible,
 a:focus-visible,
 input:focus-visible,
@@ -597,6 +683,8 @@ select:focus-visible {
     flex: 1;
     height: 100%;
     background: #dbe4ee;
+    /* Žemėlapio gestus (įskaitant pinch-zoom) apdoroja Leaflet */
+    touch-action: none;
 }
 
 body.sidebar-hidden #map {
@@ -695,10 +783,6 @@ body.sidebar-hidden #map {
     background: #dbe4ee;
 }
 
-.leaflet-top.leaflet-right {
-    top: 66px;
-}
-
 .leaflet-bar {
     border: none !important;
     border-radius: 10px !important;
@@ -717,11 +801,6 @@ body.sidebar-hidden #map {
 
 .leaflet-bar a:last-child { border-bottom: none !important; }
 .leaflet-bar a:hover { background: #f1f5f9 !important; }
-
-/* Maršruto instrukcijų konteineris nenaudojamas (show: false), todėl paslepiame ir tuščią rėmelį */
-.leaflet-routing-container {
-    display: none !important;
-}
 
 .leaflet-control-attribution {
     max-width: 100%;
@@ -899,6 +978,143 @@ body.sidebar-hidden #map {
 }
 
 /* =========================================================
+   NUSTATYMAI (HeiGIT API raktas)
+   ========================================================= */
+
+.settings-dialog {
+    width: min(430px, calc(100vw - 32px));
+    padding: 0;
+    border: 1px solid var(--line-strong);
+    border-radius: 16px;
+    background: var(--sidebar);
+    color: var(--text);
+    box-shadow: 0 30px 70px -20px rgba(2, 6, 23, 0.9);
+}
+
+.settings-dialog::backdrop {
+    background: rgba(3, 7, 18, 0.66);
+    backdrop-filter: blur(3px);
+    -webkit-backdrop-filter: blur(3px);
+}
+
+.settings-form {
+    padding: 20px;
+}
+
+.settings-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.settings-head h2 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 800;
+    letter-spacing: -0.01em;
+}
+
+.settings-sub {
+    margin: 3px 0 0;
+    color: var(--muted-2);
+    font-size: 9.5px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+}
+
+.settings-label {
+    display: block;
+    margin-bottom: 7px;
+    color: var(--muted);
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+}
+
+.settings-input {
+    padding-left: 14px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12.5px;
+}
+
+.settings-hint {
+    margin: 10px 0 0;
+    color: var(--muted-2);
+    font-size: 11.5px;
+    line-height: 1.45;
+}
+
+.settings-status {
+    margin: 10px 0 0;
+    padding: 8px 10px;
+    border: 1px solid rgba(248, 113, 113, 0.3);
+    border-radius: 9px;
+    background: rgba(248, 113, 113, 0.12);
+    color: #fecaca;
+    font-size: 12px;
+}
+
+.settings-status[hidden] { display: none; }
+
+.settings-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    margin-top: 18px;
+}
+
+.settings-link {
+    margin-right: auto;
+    color: var(--accent-strong);
+    font-size: 12px;
+    font-weight: 600;
+    text-decoration: none;
+}
+
+.settings-link:hover {
+    color: #ffffff;
+    text-decoration: underline;
+}
+
+.settings-save,
+.settings-clear {
+    height: 40px;
+    padding: 0 16px;
+    border-radius: 11px;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.settings-save {
+    border: none;
+    background: linear-gradient(135deg, #6366f1, #4f46e5);
+    color: #ffffff;
+    box-shadow: 0 10px 22px -12px rgba(79, 70, 229, 0.9);
+}
+
+.settings-save:hover {
+    transform: translateY(-1px);
+}
+
+.settings-clear {
+    border: 1px solid rgba(248, 113, 113, 0.42);
+    background: rgba(248, 113, 113, 0.14);
+    color: #fecaca;
+}
+
+.settings-clear:hover {
+    background: rgba(248, 113, 113, 0.2);
+}
+
+.settings-clear[hidden] { display: none; }
+
+/* =========================================================
    MOBILIEJI ĮRENGINIAI
    ========================================================= */
 
@@ -947,12 +1163,80 @@ body.sidebar-hidden #map {
     .brand-text h1 { font-size: 15.5px; }
     .brand-text p { font-size: 9.5px; }
 
+    .brand-text h1 {
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .header-actions { gap: 6px; }
+
+    #settings-btn {
+        width: 30px;
+        height: 30px;
+    }
+
+    .badge {
+        padding: 4px 9px;
+        font-size: 11px;
+    }
+
+    .settings-dialog {
+        width: calc(100vw - 24px);
+    }
+
+    .settings-form {
+        padding: 16px;
+    }
+
+    .settings-actions {
+        gap: 8px;
+    }
+
+    .settings-link {
+        flex: 1 0 100%;
+        margin-right: 0;
+    }
+
+    .settings-save {
+        flex: 1 1 auto;
+    }
+
+    .settings-clear {
+        flex: 0 0 auto;
+    }
+
     .sidebar-body {
         padding: 14px 16px 4px;
     }
 
     .btn-container {
         padding: 10px 16px calc(14px + env(safe-area-inset-bottom, 0px));
+    }
+
+    /* Kai maršrutas jau sudarytas – antraeilės knygos tampa kompaktiškomis ikonomis */
+    body.has-route-summary .action-row {
+        display: flex;
+        align-items: stretch;
+        gap: 8px;
+        margin-bottom: 8px;
+    }
+
+    body.has-route-summary .action-row .route-summary {
+        flex: 1 1 auto;
+        min-height: 46px;
+        margin-bottom: 0;
+    }
+
+    body.has-route-summary .action-row .secondary-btn {
+        flex: 0 0 46px;
+        width: 46px;
+        height: 46px;
+        margin-bottom: 0;
+        padding: 0;
+    }
+
+    body.has-route-summary .action-row .secondary-btn .btn-text {
+        display: none;
     }
 
     #route-btn { height: 48px; }
@@ -980,10 +1264,6 @@ body.sidebar-hidden #map {
 
     body.sidebar-hidden #gps-btn {
         bottom: calc(18px + env(safe-area-inset-bottom, 0px));
-    }
-
-    .leaflet-top.leaflet-right {
-        top: 58px;
     }
 
     /* Mobiliesiems paliekame tik privalomą OSM atribuciją – ji telpa į ekraną */
