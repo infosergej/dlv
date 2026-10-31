@@ -78,6 +78,10 @@
     // Если пользователь сам сдвинул карту — не тянем её обратно за машиной
     map.on('dragstart', () => { followUser = false; });
 
+    // Kai telefone atidarytas popup – laikinai paslepiame žemėlapio valdiklius
+    map.on('popupopen', () => document.body.classList.add('map-popup-open'));
+    map.on('popupclose', () => document.body.classList.remove('map-popup-open'));
+
     let initialMarkersGroup = L.layerGroup().addTo(map);
     let routeMarkersGroup = L.layerGroup().addTo(map);
     let routeLineLayer = null;         // Sudaryto maršruto linija (HeiGIT)
@@ -118,6 +122,27 @@
         if (value === null || value === undefined || value === '') return null;
         const num = typeof value === 'number' ? value : parseFloat(value);
         return Number.isFinite(num) ? num : null;
+    }
+
+    // Žymeklio ikona: 28 px apskritimas, tiksliai centruotas koordinatėje
+    function createNumberIcon(label, extraClass = '') {
+        return L.divIcon({
+            className: `number-marker${extraClass ? ` ${extraClass}` : ''}`,
+            html: label,
+            iconSize: [28, 28],
+            iconAnchor: [14, 14],
+            popupAnchor: [0, -16]
+        });
+    }
+
+    // Popup plotis prisitaiko prie ekrano, kad neišliptų už krašto
+    function popupOptions() {
+        const narrow = window.innerWidth <= 768;
+        return {
+            maxWidth: Math.max(200, Math.min(300, window.innerWidth - 48)),
+            autoPanPaddingTopLeft: [16, narrow ? 16 : 64],
+            autoPanPaddingBottomRight: [16, 16]
+        };
     }
 
     // Единый шаблон элемента списка адресов
@@ -754,14 +779,14 @@
     function refreshInitialMarkers() {
     initialMarkersGroup.clearLayers();
     if (startPoint) {
-        const startIcon = L.divIcon({ className: 'number-marker start-marker', html: 'S' });
+        const startIcon = createNumberIcon('S', 'start-marker');
         const popupContent = `
             <div class="info-popup">
                 <div class="info-popup__eyebrow">Maršruto pradžia</div>
                 <div class="info-popup__title">${escapeHtml(startPoint.title)}</div>
             </div>
         `;
-        L.marker([startPoint.lat, startPoint.lng], { icon: startIcon }).addTo(initialMarkersGroup).bindPopup(popupContent);
+        L.marker([startPoint.lat, startPoint.lng], { icon: startIcon }).addTo(initialMarkersGroup).bindPopup(popupContent, popupOptions());
     }
     
     document.querySelectorAll('.address-item').forEach((item, index) => {
@@ -769,7 +794,7 @@
         const lng = parseFloat(item.getAttribute('data-lng'));
         const title = item.getAttribute('data-title');
         
-        const numberIcon = L.divIcon({ className: 'number-marker', html: index + 1 });
+        const numberIcon = createNumberIcon(index + 1);
         
         const googleMapsUrl = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
         
@@ -784,7 +809,7 @@
             </div>
         `;
         
-        L.marker([lat, lng], { icon: numberIcon }).addTo(initialMarkersGroup).bindPopup(popupContent);
+        L.marker([lat, lng], { icon: numberIcon }).addTo(initialMarkersGroup).bindPopup(popupContent, popupOptions());
     });
 }
 
@@ -848,7 +873,7 @@
         clearRouteDrawing();
         const requestId = routeRequestId;
 
-        const startIcon = L.divIcon({ className: 'number-marker start-marker', html: 'S' });
+        const startIcon = createNumberIcon('S', 'start-marker');
 
         // Кнопка для старта на проложенном маршруте
         const startGpsUrl = `https://www.google.com/maps/dir/?api=1&destination=${startPoint.lat},${startPoint.lng}`;
@@ -859,7 +884,7 @@
                 <a class="info-popup__btn" href="${startGpsUrl}" target="_blank" rel="noopener">Google Maps</a>
             </div>
         `;
-        L.marker([startPoint.lat, startPoint.lng], { icon: startIcon }).addTo(routeMarkersGroup).bindPopup(startPopup);
+        L.marker([startPoint.lat, startPoint.lng], { icon: startIcon }).addTo(routeMarkersGroup).bindPopup(startPopup, popupOptions());
 
         const coordinates = [[startPoint.lng, startPoint.lat]];
 
@@ -869,7 +894,7 @@
             const title = item.getAttribute('data-title');
             coordinates.push([lng, lat]);
 
-            const numberIcon = L.divIcon({ className: 'number-marker', html: index + 1 });
+            const numberIcon = createNumberIcon(index + 1);
 
             const addressGpsUrl = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
 
@@ -882,7 +907,7 @@
                     <button class="info-popup__btn info-popup__btn--danger" onclick="deleteItemByIndex(${index})">Pašalinti adresą</button>
                 </div>
             `;
-            L.marker([lat, lng], { icon: numberIcon }).addTo(routeMarkersGroup).bindPopup(addressPopup);
+            L.marker([lat, lng], { icon: numberIcon }).addTo(routeMarkersGroup).bindPopup(addressPopup, popupOptions());
         });
 
         const key = getOrsKey();
@@ -1100,17 +1125,14 @@ function findMyLocation() {
 
                     // Создаем или плавно передвигаем маркер машины
                     if (userLocationMarker === null) {
-                        const driverIcon = L.divIcon({
-                            className: 'number-marker driver-marker',
-                            html: '<svg class="icon"><use href="#i-car"></use></svg>'
-                        });
+                        const driverIcon = createNumberIcon('<svg class="icon"><use href="#i-car"></use></svg>', 'driver-marker');
                         userLocationMarker = L.marker([lat, lng], { icon: driverIcon }).addTo(map)
                             .bindPopup(`
                                 <div class="info-popup">
                                     <div class="info-popup__eyebrow">GPS</div>
                                     <div class="info-popup__title">Jūsų esama pozicija</div>
                                 </div>
-                            `);
+                            `, popupOptions());
                         followUser = true;
                         map.setView([lat, lng], 16); 
                     } else {
