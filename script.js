@@ -637,6 +637,92 @@
         return null;
     }
 
+    // Santrumpos, kurios neturi įtakos paieškos patikimumui
+    const GENERIC_SEARCH_TOKENS = new Set(['g', 'pr', 'pl', 'a', 'skv', 'sk', 'k']);
+
+    function isSignificantToken(token) {
+        if (!token) return false;
+        if (/^\d+[a-z]?$/.test(token)) return false;
+        if (token.length < 2) return false;
+        return !GENERIC_SEARCH_TOKENS.has(token);
+    }
+
+    // Grąžina reikšmingus užklausos žodžius ir jų žetonus
+    function significantQueryWords(query) {
+        return String(query || '')
+            .trim()
+            .split(/\s+/)
+            .map((word) => ({
+                word,
+                tokens: tokenizeSearch(word).filter(isSignificantToken)
+            }))
+            .filter(({ tokens }) => tokens.length > 0);
+    }
+
+    function candidateTokensForSuggestions(suggestions) {
+        const tokens = new Set();
+        suggestions.forEach((suggestion) => {
+            const haystack = [suggestion.primary, suggestion.street, suggestion.city]
+                .filter(Boolean)
+                .join(' ');
+            tokenizeSearch(haystack).forEach((token) => tokens.add(token));
+        });
+        return [...tokens];
+    }
+
+    function wordMatchScore(tokens, candidateTokens) {
+        let total = 0;
+        tokens.forEach((token) => {
+            let best = 0;
+            candidateTokens.forEach((candidateToken) => {
+                const similarity = tokenSimilarity(token, candidateToken);
+                if (similarity > best) best = similarity;
+            });
+            total += best;
+        });
+        return tokens.length ? total / tokens.length : 0;
+    }
+
+    // Ar bent vienas pasiūlymas patikimai atitinka visus reikšmingus žodžius?
+    // Jei ne – bandysime „silpnesnį“ užklausos variantą.
+    function hasConfidentMatch(query, suggestions) {
+        if (!suggestions.length) return false;
+
+        const words = significantQueryWords(query);
+        if (!words.length) return true;
+
+        const candidateTokens = candidateTokensForSuggestions(suggestions);
+        return words.every(({ tokens }) => tokens.every((token) => {
+            return candidateTokens.some((candidateToken) => {
+                return tokenSimilarity(token, candidateToken) >= 0.6;
+            });
+        }));
+    }
+
+    // Pašalina labiausiai netinkantį žodį – taip atsigaunama, kai žmogus
+    // praleidžia pirmą (ar bet kurią) raidę ilgame žodyje.
+    function buildRelaxedQuery(query, suggestions) {
+        const words = significantQueryWords(query);
+        if (words.length < 2) return null;
+
+        const candidateTokens = candidateTokensForSuggestions(suggestions);
+        const scored = words
+            .map((entry) => ({ ...entry, score: wordMatchScore(entry.tokens, candidateTokens) }))
+            .sort((a, b) => a.score - b.score);
+
+        const weakest = scored[0];
+        if (!weakest || weakest.score >= 0.6) return null;
+
+        const allWords = String(query || '').trim().split(/\s+/);
+        const index = allWords.findIndex((word) => word === weakest.word);
+        if (index === -1) return null;
+
+        const relaxed = allWords.filter((_, wordIndex) => wordIndex !== index).join(' ').trim();
+        if (!relaxed) return null;
+        if (!significantQueryWords(relaxed).length) return null;
+        return relaxed;
+    }
+
     function pushUniquePart(parts, value) {
         const text = String(value || '').trim();
         if (!text) return;
@@ -683,6 +769,7 @@
 
         return {
             label,
+            primary: street ? (house ? `${street} ${house}` : street) : name,
             lat,
             lng,
             street,
@@ -724,6 +811,7 @@
 
         return {
             label,
+            primary: street ? (house ? `${street} ${house}` : street) : (name || label),
             lat,
             lng,
             street,
@@ -742,7 +830,7 @@
         const queryTokens = tokenizeSearch(query);
         if (!queryTokens.length) return 0;
 
-        const haystack = [suggestion.label, suggestion.street, suggestion.city, suggestion.locality]
+        const haystack = [suggestion.primary, suggestion.street, suggestion.city]
             .filter(Boolean)
             .join(' ');
         const candidateTokens = tokenizeSearch(haystack);
@@ -805,10 +893,10 @@
             .map(({ suggestion }) => suggestion);
     }
 
-    async function fetchPhotonSuggestions(query, signal) {
+    async function fetchPhotonSuggestions(query, signal, limit = 15) {
         const url = new URL(PHOTON_SEARCH_URL);
         url.searchParams.set('q', query);
-        url.searchParams.set('limit', '15');
+        url.searchParams.set('limit', String(limit));
         url.searchParams.set('bbox', LITHUANIA_BBOX);
 
         // Photon gali būti neprieinamas – po kelių sekundžių persijungiame
@@ -849,6 +937,65 @@
         }
     }
 
+    // Lietuviškas kelintinis skaičius: 3-ioji, 13-oji, 18-oji, 23-ioji
+    function lithuanianOrdinalSuffix(number) {
+        const value = Number(number);
+        if (!Number.isFinite(value)) return 'oji';
+        return value % 10 === 3 && value % 100 !== 13 ? 'ioji' : 'oji';
+    }
+
+    // "Kryzioku sodu 18 10" -> "Kryzioku sodu 18-oji g. 10"
+    // Taip pat sutvarko trūkstamą "-oji" arba "g.".
+    function expandSoduStreetNumber(query) {
+        const text = String(query || '').trim();
+        if (!text) return null;
+
+        const pattern = /(^|[\s,.;])([^\s,.;]*sod[^\s,.;]*)\s+(\d{1,3})(?:\s*[-–]?\s*(oji|osios|asis))?\s*((?:g\.?|gatv[eė]s?)\s+)?(\d{1,4}[a-z]?)(?=$|[\s,.;])/i;
+
+        let changed = false;
+        const expanded = text.replace(pattern, (full, prefix, sodWord, number, ordinal, streetWord, house) => {
+            const hasOrdinal = Boolean(ordinal);
+            const hasStreetWord = Boolean(streetWord);
+            if (hasOrdinal && hasStreetWord) return full;
+
+            changed = true;
+            const suffix = ordinal || lithuanianOrdinalSuffix(number);
+            const streetPart = streetWord ? streetWord.trim() : 'g.';
+            return `${prefix}${sodWord} ${number}-${suffix} ${streetPart} ${house}`;
+        });
+
+        if (!changed) return null;
+        return expanded.replace(/\s+/g, ' ').trim();
+    }
+
+    // Išskleista užklausa -> { sodWord, streetNumber, ordinal, streetWord, house }
+    function parseExpandedSoduAddress(query) {
+        const match = String(query || '').match(
+            /([^\s,.;]*sod[^\s,.;]*)\s+(\d{1,3})-([a-z]+)\s+((?:g\.?|gatv[eė]s?))\s+(\d{1,4}[a-z]?)/i
+        );
+        if (!match) return null;
+        return {
+            sodWord: match[1],
+            streetNumber: match[2],
+            ordinal: match[3],
+            streetWord: match[4],
+            house: match[5]
+        };
+    }
+
+    // Photon kai kada sukeičia gatvės ir namo numerius, jei ieškomos
+    // gatvės nėra. Toks rezultatas yra klaidinantis.
+    function isSwappedSoduSuggestion(address, suggestion) {
+        const streetMatch = String(suggestion.street || '').match(/(\d{1,3})\s*-(?:oji|ioji|osios|asis)/i);
+        if (!streetMatch) return false;
+        return streetMatch[1] === address.house
+            && normalizeSearchText(suggestion.house || '') === normalizeSearchText(address.streetNumber);
+    }
+
+    function buildGeneralSoduQuery(address) {
+        return `${address.sodWord} ${address.streetNumber}-${address.ordinal} ${address.streetWord} ${address.house}`;
+    }
+
     // "gatvė" Nominatim nesupranta, todėl pakeičiame į OSM santrumpą "g."
     function normalizeStreetAbbreviations(value) {
         // \b JS neveikia po lietuviškos "ė", todėl ribas nurodome rankiniu būdu
@@ -871,8 +1018,9 @@
             variants.push(text);
         };
 
+        const expanded = expandSoduStreetNumber(query);
+        add(normalizeStreetAbbreviations(expanded || query));
         add(normalizeStreetAbbreviations(query));
-        add(query);
         return variants.slice(0, 2);
     }
 
@@ -911,19 +1059,73 @@
     }
 
     async function searchAddressSuggestions(query, signal) {
+        // "Sodų 18 10" aiškiname kaip "Sodų 18-oji g. 10"
+        const expandedQuery = expandSoduStreetNumber(query);
+        const primaryQuery = expandedQuery || query;
+        let rankingQuery = primaryQuery;
         let photonItems = [];
 
         try {
-            photonItems = await fetchPhotonSuggestions(query, signal);
+            photonItems = await fetchPhotonSuggestions(primaryQuery, signal);
         } catch (error) {
             if (error.name === 'AbortError') throw error;
-            // Photon nepasiekiamas – bandome Nominatim
+            // Photon nepasiekiamas – bandome kitus variantus
         }
 
-        if (photonItems.length) return rankSuggestions(query, photonItems);
+        // Jei sutrumpinta forma nieko nedavė, bandome originalią užklausą
+        if (expandedQuery && !photonItems.length) {
+            try {
+                photonItems = await fetchPhotonSuggestions(query, signal);
+            } catch (error) {
+                if (error.name === 'AbortError') throw error;
+            }
+        }
+
+        // Jei visi rezultatai tik su sukeistais numeriais, vadinasi, tokios
+        // gatvės konkrečioje sodų bendrijoje nėra. Bandome bendresnę užklausą.
+        if (expandedQuery && photonItems.length) {
+            const address = parseExpandedSoduAddress(expandedQuery);
+            if (address && photonItems.every((item) => isSwappedSoduSuggestion(address, item))) {
+                const generalQuery = buildGeneralSoduQuery(address);
+                try {
+                    const generalItems = await fetchPhotonSuggestions(generalQuery, signal, 30);
+                    const relevantItems = generalItems.filter((item) => !isSwappedSoduSuggestion(address, item));
+                    photonItems = relevantItems;
+                    if (relevantItems.length) rankingQuery = generalQuery;
+                } catch (error) {
+                    if (error.name === 'AbortError') throw error;
+                    photonItems = [];
+                }
+            }
+        }
+
+        // Praleista raidė gali sugadinti visą žodį (ypač pirmą).
+        // Tokiu atveju kartojame be silpniausio žodžio ir sujungiame rezultatus.
+        if (photonItems.length && !hasConfidentMatch(rankingQuery, photonItems)) {
+            const relaxedQuery = buildRelaxedQuery(rankingQuery, photonItems);
+            if (relaxedQuery) {
+                try {
+                    const relaxedItems = await fetchPhotonSuggestions(relaxedQuery, signal, 30);
+                    photonItems = photonItems.concat(relaxedItems);
+                } catch (error) {
+                    if (error.name === 'AbortError') throw error;
+                }
+            }
+        } else if (!photonItems.length) {
+            const relaxedQuery = buildRelaxedQuery(rankingQuery, []);
+            if (relaxedQuery) {
+                try {
+                    photonItems = await fetchPhotonSuggestions(relaxedQuery, signal, 30);
+                } catch (error) {
+                    if (error.name === 'AbortError') throw error;
+                }
+            }
+        }
+
+        if (photonItems.length) return rankSuggestions(rankingQuery, photonItems);
 
         const nominatimItems = await fetchNominatimSuggestions(query, signal);
-        return rankSuggestions(query, nominatimItems);
+        return rankSuggestions(rankingQuery, nominatimItems);
     }
 
     function renderSuggestions(suggestionsBox, items, type) {
