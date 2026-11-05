@@ -3,7 +3,7 @@
 //  - programos apvalkalas (HTML/CSS/JS) -> tinklas pirmiausia, kai nėra tinklo - talpykla
 //  - CDN bibliotekos -> stale-while-revalidate
 //  - žemėlapio plytelės -> talpykla pirmiausia (ribotas kiekis)
-const CACHE_VERSION = 'v10';
+const CACHE_VERSION = 'v11';
 const SHELL_CACHE = `marsrutas-shell-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `marsrutas-runtime-${CACHE_VERSION}`;
 const TILE_CACHE = `marsrutas-tiles-${CACHE_VERSION}`;

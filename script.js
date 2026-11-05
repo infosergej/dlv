@@ -98,6 +98,16 @@
     let searchAbortController = null; // Позволяет отменить устаревший запрос автодополнения
     const MAX_GOOGLE_WAYPOINTS = 9; // Google Maps принимает не более 9 промежуточных точек
 
+    // Adresų paieška: Photon (fuzzy, be rakto) + Nominatim (atsarginis variantas)
+    const PHOTON_SEARCH_URL = 'https://photon.komoot.io/api/';
+    const NOMINATIM_SEARCH_URL = 'https://nominatim.openstreetmap.org/search';
+    const LITHUANIA_BBOX = '20.9,53.8,26.9,56.5';
+    const SEARCH_DEBOUNCE_MS = 350;
+    const NOMINATIM_MIN_INTERVAL = 1100; // Nominatim politika: 1 užklausa per sekundę
+    const PHOTON_TIMEOUT_MS = 4000;
+    const MAX_SUGGESTIONS = 7;
+    let lastNominatimRequestAt = 0;
+
     // HeiGIT (openrouteservice): maršrutai ir adresų eiliškumo optimizavimas
     const ORS_BASE_URL = 'https://api.openrouteservice.org';
     const ORS_PROFILE = 'driving-car';
@@ -514,10 +524,11 @@
             return;
         }
 
-        // Nominatim politika: ne daugiau kaip 1 užklausa per sekundę
+        // Photon leidžia autocomplete dažniau; Nominatim atsarginis kelias
+        // pats laiko 1 užklausos per sekundę limitą.
         searchTimeout = setTimeout(() => {
             fetchSuggestions(query, type);
-        }, 1000);
+        }, SEARCH_DEBOUNCE_MS);
     }
 
     function showSuggestionMessage(box, message) {
@@ -529,93 +540,444 @@
         box.style.display = 'block';
     }
 
-    function fetchSuggestions(query, type) {
+    // --- Adresų paieškos pagalbinės funkcijos ---
+
+    function createAbortError() {
+        const error = new Error('Aborted');
+        error.name = 'AbortError';
+        return error;
+    }
+
+    function delayWithSignal(ms, signal) {
+        return new Promise((resolve, reject) => {
+            if (signal && signal.aborted) {
+                reject(createAbortError());
+                return;
+            }
+
+            const onAbort = () => {
+                clearTimeout(timer);
+                reject(createAbortError());
+            };
+
+            const timer = setTimeout(() => {
+                if (signal) signal.removeEventListener('abort', onAbort);
+                resolve();
+            }, ms);
+
+            if (signal) signal.addEventListener('abort', onAbort, { once: true });
+        });
+    }
+
+    // Nuima lietuviškus diakritikus ir suvienodina gatvių santrumpas.
+    // Taip "gatvė", "gatve", "g." ir "g" tampa tuo pačiu žodžiu.
+    function normalizeSearchText(value) {
+        return String(value || '')
+            .toLowerCase()
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .replace(/\bgatves?\b/g, 'g')
+            .replace(/\bprospekt(as|o|a)?\b/g, 'pr')
+            .replace(/\baikstes?\b/g, 'a')
+            .replace(/\bplent(as|o|a)?\b/g, 'pl')
+            .replace(/\bskver(as|o|a)?\b/g, 'skv')
+            .replace(/[^a-z0-9]+/g, ' ')
+            .trim()
+            .replace(/\s+/g, ' ');
+    }
+
+    function tokenizeSearch(value) {
+        const normalized = normalizeSearchText(value);
+        return normalized ? normalized.split(' ') : [];
+    }
+
+    function editDistance(a, b) {
+        if (a === b) return 0;
+        if (!a.length) return b.length;
+        if (!b.length) return a.length;
+
+        let previous = Array.from({ length: b.length + 1 }, (_, index) => index);
+        const current = new Array(b.length + 1);
+
+        for (let i = 1; i <= a.length; i++) {
+            current[0] = i;
+            for (let j = 1; j <= b.length; j++) {
+                const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+                current[j] = Math.min(
+                    current[j - 1] + 1,
+                    previous[j] + 1,
+                    previous[j - 1] + cost
+                );
+            }
+            for (let j = 0; j <= b.length; j++) previous[j] = current[j];
+        }
+
+        return previous[b.length];
+    }
+
+    // 1 – žodžiai sutampa, 0 – visiškai skirtingi. Trumpi žodžiai ir
+    // numeriai turi sutapti tiksliai, kad neatsirastų klaidingų pasiūlymų.
+    function tokenSimilarity(a, b) {
+        if (a === b) return 1;
+        const maxLength = Math.max(a.length, b.length);
+        if (maxLength <= 2) return 0;
+
+        const similarity = 1 - editDistance(a, b) / maxLength;
+        return similarity >= 0.5 ? similarity : 0;
+    }
+
+    function findHouseNumber(tokens) {
+        for (let i = tokens.length - 1; i >= 0; i--) {
+            const token = tokens[i];
+            if (!/^\d+[a-z]?$/.test(token)) continue;
+            // "6-oji" yra gatvės numeris, o ne namo numeris
+            if (tokens[i + 1] === 'oji' || tokens[i + 1] === 'osios') continue;
+            return token;
+        }
+        return null;
+    }
+
+    function pushUniquePart(parts, value) {
+        const text = String(value || '').trim();
+        if (!text) return;
+        const normalized = normalizeSearchText(text);
+        if (!normalized) return;
+        if (parts.some((part) => normalizeSearchText(part) === normalized)) return;
+        parts.push(text);
+    }
+
+    // Photon atsakymą paverčiame vienodu pasiūlymo objektu
+    function photonFeatureToSuggestion(feature) {
+        if (!feature || feature.type !== 'Feature') return null;
+        const props = feature.properties || {};
+        if (props.countrycode && String(props.countrycode).toUpperCase() !== 'LT') return null;
+
+        const coordinates = feature.geometry && feature.geometry.coordinates;
+        const lng = toFiniteNumber(Array.isArray(coordinates) ? coordinates[0] : null);
+        const lat = toFiniteNumber(Array.isArray(coordinates) ? coordinates[1] : null);
+        if (lat === null || lng === null) return null;
+
+        const street = String(props.street || '').trim();
+        const house = String(props.housenumber || '').trim();
+        const locality = String(props.locality || props.district || '').trim();
+        const city = String(props.city || props.town || props.village || props.municipality || '').trim();
+        const name = String(props.name || '').trim();
+
+        const parts = [];
+        if (street) {
+            pushUniquePart(parts, house ? `${street} ${house}` : street);
+        } else if (name) {
+            pushUniquePart(parts, name);
+        }
+        pushUniquePart(parts, locality);
+        pushUniquePart(parts, city);
+
+        let label = parts.join(', ');
+        if (!label) {
+            label = [name, props.county, props.state]
+                .map((value) => String(value || '').trim())
+                .filter(Boolean)
+                .join(', ');
+        }
+        if (!label) return null;
+
+        return {
+            label,
+            lat,
+            lng,
+            street,
+            house,
+            city,
+            locality,
+            kind: String(props.type || ''),
+            osmKey: String(props.osm_key || '')
+        };
+    }
+
+    // Nominatim atsakymą paverčiame tuo pačiu formatu
+    function nominatimItemToSuggestion(item) {
+        const address = item.address || {};
+        const name = String(item.name || '').trim();
+        const street = String(address.road || address.pedestrian || address.cycleway || address.footway || '').trim();
+        const house = String(address.house_number || '').trim();
+        const locality = String(address.suburb || address.neighbourhood || address.village || '').trim();
+        const city = String(address.city || address.town || address.municipality || '').trim();
+
+        const parts = [];
+        if (name && name !== street && name !== city && name !== house) {
+            pushUniquePart(parts, name);
+        }
+        if (street) {
+            pushUniquePart(parts, house ? `${street} ${house}` : street);
+        }
+        pushUniquePart(parts, locality);
+        pushUniquePart(parts, city);
+
+        let label = parts.join(', ');
+        if (!street || !label || label.length < 6) {
+            label = String(item.display_name || '').replace(', Lietuva', '').trim();
+        }
+
+        const lat = toFiniteNumber(item.lat);
+        const lng = toFiniteNumber(item.lon);
+        if (!label || lat === null || lng === null) return null;
+
+        return {
+            label,
+            lat,
+            lng,
+            street,
+            house,
+            city,
+            locality,
+            kind: house ? 'house' : (street ? 'street' : ''),
+            osmKey: ''
+        };
+    }
+
+    // Kuo labiau pasiūlymas panašus į įvestą tekstą, tuo jis aukščiau.
+    // Namo numeris turi didelį svorį, kad "6-oji g. 10" neatsirastų
+    // prieš "6-oji g. 10" esant kitam namui.
+    function scoreSuggestion(query, suggestion) {
+        const queryTokens = tokenizeSearch(query);
+        if (!queryTokens.length) return 0;
+
+        const haystack = [suggestion.label, suggestion.street, suggestion.city, suggestion.locality]
+            .filter(Boolean)
+            .join(' ');
+        const candidateTokens = tokenizeSearch(haystack);
+        if (!candidateTokens.length) return 0;
+
+        let total = 0;
+        let exactMatches = 0;
+
+        queryTokens.forEach((queryToken) => {
+            let best = 0;
+            candidateTokens.forEach((candidateToken) => {
+                const similarity = tokenSimilarity(queryToken, candidateToken);
+                if (similarity > best) best = similarity;
+            });
+            total += best;
+            if (best === 1) exactMatches += 1;
+        });
+
+        let score = total / queryTokens.length;
+        score += (exactMatches / queryTokens.length) * 0.2;
+
+        const house = findHouseNumber(queryTokens);
+        if (house) {
+            const candidateHouse = normalizeSearchText(suggestion.house || '');
+            if (candidateHouse && candidateHouse === house) score += 0.35;
+            else if (candidateHouse) score -= 0.2;
+            else score -= 0.1;
+        }
+
+        if (house) {
+            if (suggestion.kind === 'house') score += 0.08;
+            if (suggestion.kind === 'street') score -= 0.05;
+        } else {
+            // Kai namo numerio dar nėra, gatvė naudingesnė už atsitiktinį namą
+            if (suggestion.kind === 'street') score += 0.08;
+            if (suggestion.kind === 'house') score -= 0.02;
+        }
+
+        return score;
+    }
+
+    function rankSuggestions(query, suggestions) {
+        const seen = new Set();
+
+        return suggestions
+            .filter((suggestion) => suggestion && suggestion.label)
+            .map((suggestion) => ({ suggestion, score: scoreSuggestion(query, suggestion) }))
+            .sort((a, b) => b.score - a.score)
+            .filter(({ suggestion }) => {
+                const key = [
+                    normalizeSearchText(suggestion.label),
+                    suggestion.lat.toFixed(5),
+                    suggestion.lng.toFixed(5)
+                ].join('|');
+                if (seen.has(key)) return false;
+                seen.add(key);
+                return true;
+            })
+            .slice(0, MAX_SUGGESTIONS)
+            .map(({ suggestion }) => suggestion);
+    }
+
+    async function fetchPhotonSuggestions(query, signal) {
+        const url = new URL(PHOTON_SEARCH_URL);
+        url.searchParams.set('q', query);
+        url.searchParams.set('limit', '15');
+        url.searchParams.set('bbox', LITHUANIA_BBOX);
+
+        // Photon gali būti neprieinamas – po kelių sekundžių persijungiame
+        // į Nominatim, kad paieška neliktų amžinai „Ieškoma…“.
+        const controller = new AbortController();
+        const onAbort = () => controller.abort();
+        if (signal) {
+            if (signal.aborted) controller.abort();
+            else signal.addEventListener('abort', onAbort, { once: true });
+        }
+
+        let timedOut = false;
+        const timer = setTimeout(() => {
+            timedOut = true;
+            controller.abort();
+        }, PHOTON_TIMEOUT_MS);
+
+        try {
+            const response = await fetch(url.toString(), {
+                signal: controller.signal,
+                headers: { Accept: 'application/json' }
+            });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+            const data = await response.json();
+            const features = Array.isArray(data.features) ? data.features : [];
+            return features.map(photonFeatureToSuggestion).filter(Boolean);
+        } catch (error) {
+            if (timedOut) {
+                const timeoutError = new Error('Photon timeout');
+                timeoutError.name = 'TimeoutError';
+                throw timeoutError;
+            }
+            throw error;
+        } finally {
+            clearTimeout(timer);
+            if (signal) signal.removeEventListener('abort', onAbort);
+        }
+    }
+
+    // "gatvė" Nominatim nesupranta, todėl pakeičiame į OSM santrumpą "g."
+    function normalizeStreetAbbreviations(value) {
+        // \b JS neveikia po lietuviškos "ė", todėl ribas nurodome rankiniu būdu
+        return String(value || '')
+            .replace(/(^|[\s,.;])gatv[eė]s?(?=$|[\s,.;])/gi, '$1g.')
+            .replace(/(^|[\s,.;])aikšt[eė]s?(?=$|[\s,.;])/gi, '$1a.')
+            .replace(/\bprospekt(as|o|a)?\b/gi, 'pr.')
+            .replace(/\bplent(as|o|a)?\b/gi, 'pl.')
+            .replace(/\bskver(as|o|a)?\b/gi, 'skv.')
+            .replace(/\s+/g, ' ')
+            .trim();
+    }
+
+    function buildNominatimVariants(query) {
+        const variants = [];
+        const add = (value) => {
+            const text = String(value || '').replace(/\s+/g, ' ').trim();
+            if (!text) return;
+            if (variants.some((variant) => normalizeSearchText(variant) === normalizeSearchText(text))) return;
+            variants.push(text);
+        };
+
+        add(normalizeStreetAbbreviations(query));
+        add(query);
+        return variants.slice(0, 2);
+    }
+
+    async function waitForNominatimSlot(signal) {
+        const elapsed = Date.now() - lastNominatimRequestAt;
+        const wait = Math.max(0, NOMINATIM_MIN_INTERVAL - elapsed);
+        if (wait > 0) await delayWithSignal(wait, signal);
+        lastNominatimRequestAt = Date.now();
+    }
+
+    async function fetchNominatimSuggestions(query, signal) {
+        const variants = buildNominatimVariants(query);
+
+        for (const variant of variants) {
+            await waitForNominatimSlot(signal);
+
+            const url = `${NOMINATIM_SEARCH_URL}?format=json&q=${encodeURIComponent(variant)}`
+                + '&countrycodes=lt&addressdetails=1&accept-language=lt'
+                + `&limit=${MAX_SUGGESTIONS}&viewbox=${LITHUANIA_BBOX}&bounded=1`;
+
+            const response = await fetch(url, {
+                signal,
+                headers: { Accept: 'application/json' }
+            });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+            const data = await response.json();
+            const items = (Array.isArray(data) ? data : [])
+                .map(nominatimItemToSuggestion)
+                .filter(Boolean);
+
+            if (items.length) return items;
+        }
+
+        return [];
+    }
+
+    async function searchAddressSuggestions(query, signal) {
+        let photonItems = [];
+
+        try {
+            photonItems = await fetchPhotonSuggestions(query, signal);
+        } catch (error) {
+            if (error.name === 'AbortError') throw error;
+            // Photon nepasiekiamas – bandome Nominatim
+        }
+
+        if (photonItems.length) return rankSuggestions(query, photonItems);
+
+        const nominatimItems = await fetchNominatimSuggestions(query, signal);
+        return rankSuggestions(query, nominatimItems);
+    }
+
+    function renderSuggestions(suggestionsBox, items, type) {
+        suggestionsBox.textContent = '';
+
+        items.forEach((item) => {
+            const div = document.createElement('div');
+            div.className = 'suggestion-item';
+            div.setAttribute('role', 'option');
+            div.textContent = item.label;
+
+            div.onclick = () => {
+                if (type === 'start') {
+                    setStartPoint(item.label, item.lat, item.lng);
+                } else {
+                    addAddressToList(item.label, item.lat, item.lng);
+                }
+                suggestionsBox.style.display = 'none';
+                const inputId = type === 'start' ? 'start-input' : 'address-input';
+                document.getElementById(inputId).value = '';
+            };
+
+            suggestionsBox.appendChild(div);
+        });
+
+        suggestionsBox.style.display = 'block';
+    }
+
+    async function fetchSuggestions(query, type) {
         const boxId = type === 'start' ? 'start-suggestions' : 'suggestions';
         const suggestionsBox = document.getElementById(boxId);
+        if (!suggestionsBox) return;
 
-        // Отменяем предыдущий запрос, чтобы устаревший ответ не перезаписал новый
+        // Atšaukiame ankstesnę užklausą, kad pasenęs atsakymas neperrašytų naujo
         if (searchAbortController) searchAbortController.abort();
         searchAbortController = new AbortController();
         const { signal } = searchAbortController;
 
         showSuggestionMessage(suggestionsBox, 'Ieškoma…');
 
-        // ОПТИМИЗАЦИЯ ЗАПРОСА:
-        // viewbox=20.9,56.5,26.9,53.8 — это географические границы Литвы.
-        // bounded=1 — принудительно заставляет искать ИМЕННО внутри этих границ.
-        const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&countrycodes=lt&addressdetails=1&accept-language=lt&limit=7&viewbox=20.9,56.5,26.9,53.8&bounded=1`;
+        try {
+            const items = await searchAddressSuggestions(query, signal);
+            if (signal.aborted) return;
 
-        fetch(url, { signal })
-            .then(res => {
-                if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                return res.json();
-            })
-            .then(data => {
-                if (signal.aborted) return;
-                suggestionsBox.textContent = '';
+            if (!items.length) {
+                showSuggestionMessage(suggestionsBox, 'Nieko nerasta. Patikslinkite adresą.');
+                return;
+            }
 
-                if (!Array.isArray(data) || data.length === 0) {
-                    showSuggestionMessage(suggestionsBox, 'Nieko nerasta. Patikslinkite adresą.');
-                    return;
-                }
-
-                data.forEach(item => {
-                    const div = document.createElement('div');
-                    div.className = 'suggestion-item';
-                    div.setAttribute('role', 'option');
-
-                    const addr = item.address || {};
-                    let placeName = item.name || '';
-
-                    const street = addr.road || addr.pedestrian || addr.cycleway || '';
-                    const house = addr.house_number || '';
-                    const city = addr.city || addr.town || addr.village || addr.municipality || '';
-                    const suburb = addr.suburb || addr.neighbourhood || '';
-
-                    let addressParts = [];
-
-                    if (placeName && placeName !== street && placeName !== city) {
-                        addressParts.push(placeName);
-                    }
-                    if (street) {
-                        addressParts.push(street + (house ? ' ' + house : ''));
-                    }
-                    if (suburb) addressParts.push(suburb);
-                    if (city) addressParts.push(city);
-
-                    let cleanAddress = addressParts.filter(Boolean).join(', ');
-
-                    // ЗАПАСНОЙ ПЛАН: Если склеенный адрес пустой или слишком короткий,
-                    // берем полное имя от сервера (убирая "Lietuva" для красоты)
-                    if (!street || !cleanAddress || cleanAddress.length < 6) {
-                        cleanAddress = String(item.display_name || '').replace(', Lietuva', '');
-                    }
-
-                    const lat = parseFloat(item.lat);
-                    const lon = parseFloat(item.lon);
-                    if (!cleanAddress || !Number.isFinite(lat) || !Number.isFinite(lon)) return;
-
-                    div.textContent = cleanAddress;
-
-                    div.onclick = () => {
-                        if (type === 'start') {
-                            setStartPoint(cleanAddress, lat, lon);
-                        } else {
-                            addAddressToList(cleanAddress, lat, lon);
-                        }
-                        suggestionsBox.style.display = 'none';
-                        const inputId = type === 'start' ? 'start-input' : 'address-input';
-                        document.getElementById(inputId).value = '';
-                    };
-                    suggestionsBox.appendChild(div);
-                });
-
-                suggestionsBox.style.display = 'block';
-            })
-            .catch(err => {
-                if (err.name === 'AbortError') return;
-                showSuggestionMessage(suggestionsBox, 'Nepavyko atlikti paieškos. Patikrinkite interneto ryšį.');
-            });
+            renderSuggestions(suggestionsBox, items, type);
+        } catch (error) {
+            if (error.name === 'AbortError' || signal.aborted) return;
+            showSuggestionMessage(suggestionsBox, 'Nepavyko atlikti paieškos. Patikrinkite interneto ryšį.');
+        }
     }
 
     // Закрываем подсказки по клику вне поля поиска и по Escape
